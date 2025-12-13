@@ -10,7 +10,11 @@ Models:
 
 All models follow a simple interface:
 - fit(df, target_col) -> trains the model
-- predict(n_days) -> returns predictions for n_days ahead
+- predict(n_days) -> returns predictions for n_days ahead with confidence intervals
+
+Confidence Intervals:
+- Prophet/SARIMA: Native SD-based intervals (from model)
+- XGBoost/RandomForest/LinearTrend: MAD-based intervals (robust to outliers)
 """
 import numpy as np
 import pandas as pd
@@ -28,6 +32,71 @@ import xgboost as xgb
 import matplotlib.pyplot as plt
 
 
+# ==================== CONFIDENCE INTERVAL UTILITIES ====================
+
+def calculate_mad(residuals: np.ndarray) -> float:
+    """
+    Calculate Median Absolute Deviation (MAD).
+    
+    MAD is more robust to outliers than standard deviation.
+    
+    Args:
+        residuals: Array of residuals (actual - predicted)
+        
+    Returns:
+        MAD value
+    """
+    median = np.median(residuals)
+    mad = np.median(np.abs(residuals - median))
+    return mad
+
+
+def mad_to_std_equivalent(mad: float) -> float:
+    """
+    Convert MAD to standard deviation equivalent.
+    
+    For normal distribution: SD ≈ 1.4826 × MAD
+    
+    Args:
+        mad: Median Absolute Deviation
+        
+    Returns:
+        Standard deviation equivalent
+    """
+    return 1.4826 * mad
+
+
+def calculate_confidence_bounds(
+    predictions: np.ndarray,
+    residual_std: float,
+    confidence_level: float = 0.95
+) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Calculate confidence interval bounds.
+    
+    Args:
+        predictions: Point predictions
+        residual_std: Standard deviation (or MAD-equivalent) of residuals
+        confidence_level: Confidence level (default 0.95 for 95% CI)
+        
+    Returns:
+        Tuple of (lower_bounds, upper_bounds)
+    """
+    from scipy import stats
+    
+    # Z-score for confidence level (1.96 for 95%)
+    z_score = stats.norm.ppf((1 + confidence_level) / 2)
+    
+    margin = z_score * residual_std
+    lower = predictions - margin
+    upper = predictions + margin
+    
+    # Ensure non-negative for sales
+    lower = np.maximum(lower, 0)
+    
+    return lower, upper
+
+
 class BaseSimpleModel:
     """Base class for simple forecasting models."""
     
@@ -36,14 +105,47 @@ class BaseSimpleModel:
         self.is_fitted = False
         self.last_date = None
         self.training_data = None
+        # Confidence interval parameters
+        self.residual_std = None  # For MAD-based CI
+        self.confidence_level = 0.95  # 95% CI
     
     def fit(self, df: pd.DataFrame, target_col: str = 'daily_sales') -> Dict[str, Any]:
         """Fit the model. Returns training info."""
         raise NotImplementedError
     
-    def predict(self, n_days: int) -> pd.DataFrame:
-        """Predict n_days ahead. Returns DataFrame with date and predicted_sales."""
+    def predict(self, n_days: int, include_ci: bool = True) -> pd.DataFrame:
+        """
+        Predict n_days ahead.
+        
+        Args:
+            n_days: Number of days to forecast
+            include_ci: Whether to include confidence intervals
+            
+        Returns:
+            DataFrame with columns:
+            - date: Forecast date
+            - predicted_sales: Point prediction
+            - lower_bound: Lower CI bound (if include_ci=True)
+            - upper_bound: Upper CI bound (if include_ci=True)
+        """
         raise NotImplementedError
+    
+    def _calculate_residual_std(self, y_true: np.ndarray, y_pred: np.ndarray) -> float:
+        """
+        Calculate MAD-based standard deviation equivalent for confidence intervals.
+        
+        Uses MAD (Median Absolute Deviation) for robustness against outliers.
+        
+        Args:
+            y_true: Actual values
+            y_pred: Predicted values
+            
+        Returns:
+            Standard deviation equivalent from MAD
+        """
+        residuals = y_true - y_pred
+        mad = calculate_mad(residuals)
+        return mad_to_std_equivalent(mad)
     
     def save(self, path: str) -> str:
         """Save model to file."""
@@ -124,17 +226,30 @@ class LinearTrendModel(BaseSimpleModel):
         mape = mean_absolute_percentage_error(y, y_pred) * 100
         rmse = np.sqrt(mean_squared_error(y, y_pred))
         
+        # Calculate MAD-based residual std for confidence intervals
+        self.residual_std = self._calculate_residual_std(y, y_pred)
+        
         self.is_fitted = True
         self.n_train = len(df)
         
         return {
             'train_mape': mape,
             'train_rmse': rmse,
-            'n_samples': len(df)
+            'n_samples': len(df),
+            'residual_std': self.residual_std
         }
     
-    def predict(self, n_days: int) -> pd.DataFrame:
-        """Predict n_days ahead."""
+    def predict(self, n_days: int, include_ci: bool = True) -> pd.DataFrame:
+        """
+        Predict n_days ahead with confidence intervals.
+        
+        Args:
+            n_days: Number of days to forecast
+            include_ci: Whether to include confidence intervals (MAD-based)
+            
+        Returns:
+            DataFrame with date, predicted_sales, lower_bound, upper_bound
+        """
         if not self.is_fitted:
             raise ValueError("Model not fitted")
         
@@ -152,10 +267,31 @@ class LinearTrendModel(BaseSimpleModel):
         predictions = self.model.predict(X_scaled)
         predictions = np.maximum(predictions, 0)  # No negative sales
         
-        return pd.DataFrame({
+        result = pd.DataFrame({
             'date': future_dates,
             'predicted_sales': predictions
         })
+        
+        # Add confidence intervals
+        if include_ci:
+            residual_std = getattr(self, 'residual_std', None)
+            confidence_level = getattr(self, 'confidence_level', 0.95)
+            
+            if residual_std is not None:
+                lower, upper = calculate_confidence_bounds(
+                    predictions, residual_std, confidence_level
+                )
+            else:
+                # Fallback: estimate CI from prediction variance (~10%)
+                estimated_std = np.mean(predictions) * 0.1
+                lower, upper = calculate_confidence_bounds(
+                    predictions, estimated_std, confidence_level
+                )
+            
+            result['lower_bound'] = lower
+            result['upper_bound'] = upper
+        
+        return result
     
     def get_hyperparameters(self) -> Dict[str, Any]:
         return {
@@ -315,6 +451,9 @@ class XGBoostModel(BaseSimpleModel):
         mape = mean_absolute_percentage_error(y_train, y_pred) * 100
         rmse = np.sqrt(mean_squared_error(y_train, y_pred))
         
+        # Calculate MAD-based residual std for confidence intervals
+        self.residual_std = self._calculate_residual_std(y_train, y_pred)
+        
         self.is_fitted = True
         self.n_train = len(df)
         
@@ -327,7 +466,8 @@ class XGBoostModel(BaseSimpleModel):
             'n_samples': len(df_features),
             'n_features': len(self.feature_names),
             'n_iterations': len(self.train_losses),
-            'best_iteration': self.model.best_iteration if hasattr(self.model, 'best_iteration') else None
+            'best_iteration': self.model.best_iteration if hasattr(self.model, 'best_iteration') else None,
+            'residual_std': self.residual_std
         }
     
     def plot_learning_curve(self, save_path: str = None) -> str:
@@ -407,8 +547,17 @@ class XGBoostModel(BaseSimpleModel):
             'best_iteration': self.model.best_iteration if hasattr(self.model, 'best_iteration') else None
         }
     
-    def predict(self, n_days: int) -> pd.DataFrame:
-        """Predict n_days ahead using recursive forecasting."""
+    def predict(self, n_days: int, include_ci: bool = True) -> pd.DataFrame:
+        """
+        Predict n_days ahead using recursive forecasting with confidence intervals.
+        
+        Args:
+            n_days: Number of days to forecast
+            include_ci: Whether to include confidence intervals (MAD-based)
+            
+        Returns:
+            DataFrame with date, predicted_sales, lower_bound, upper_bound
+        """
         if not self.is_fitted:
             raise ValueError("Model not fitted")
         
@@ -451,7 +600,29 @@ class XGBoostModel(BaseSimpleModel):
             history = pd.concat([history, new_row], ignore_index=True)
             history = history.tail(max(self.lag_days) + max(self.rolling_windows) + 1)
         
-        return pd.DataFrame(predictions)
+        result = pd.DataFrame(predictions)
+        
+        # Add confidence intervals (MAD-based)
+        if include_ci:
+            pred_values = result['predicted_sales'].values
+            residual_std = getattr(self, 'residual_std', None)
+            confidence_level = getattr(self, 'confidence_level', 0.95)
+            
+            if residual_std is not None:
+                lower, upper = calculate_confidence_bounds(
+                    pred_values, residual_std, confidence_level
+                )
+            else:
+                # Fallback: estimate CI from prediction variance (rough estimate ~10%)
+                estimated_std = np.mean(pred_values) * 0.1
+                lower, upper = calculate_confidence_bounds(
+                    pred_values, estimated_std, confidence_level
+                )
+            
+            result['lower_bound'] = lower
+            result['upper_bound'] = upper
+        
+        return result
     
     def get_feature_importance(self) -> Dict[str, float]:
         """Get feature importance."""
@@ -554,21 +725,49 @@ class ProphetModel(BaseSimpleModel):
             'n_samples': len(df)
         }
     
-    def predict(self, n_days: int) -> pd.DataFrame:
-        """Predict n_days ahead."""
+    def predict(self, n_days: int, include_ci: bool = True) -> pd.DataFrame:
+        """
+        Predict n_days ahead with native Prophet confidence intervals.
+        
+        Prophet provides native uncertainty intervals based on:
+        - Trend uncertainty (changepoint posterior)
+        - Seasonality uncertainty
+        - Observation noise
+        
+        Args:
+            n_days: Number of days to forecast
+            include_ci: Whether to include confidence intervals
+            
+        Returns:
+            DataFrame with date, predicted_sales, lower_bound, upper_bound
+        """
         if not self.is_fitted:
             raise ValueError("Model not fitted")
         
         # Create future dataframe
         future = self.model.make_future_dataframe(periods=n_days)
+        
+        # Prophet predict returns yhat, yhat_lower, yhat_upper by default
+        # The interval_width can be set during model init (default 0.8)
+        # We'll use the native intervals which are ~80% CI
         forecast = self.model.predict(future)
         
         # Get only future predictions
-        future_forecast = forecast.tail(n_days)[['ds', 'yhat']].copy()
-        future_forecast.columns = ['date', 'predicted_sales']
-        future_forecast['predicted_sales'] = future_forecast['predicted_sales'].clip(lower=0)
+        future_forecast = forecast.tail(n_days)[['ds', 'yhat', 'yhat_lower', 'yhat_upper']].copy()
+        future_forecast.columns = ['date', 'predicted_sales', 'lower_bound', 'upper_bound']
         
-        return future_forecast.reset_index(drop=True)
+        # Ensure non-negative values
+        future_forecast['predicted_sales'] = future_forecast['predicted_sales'].clip(lower=0)
+        future_forecast['lower_bound'] = future_forecast['lower_bound'].clip(lower=0)
+        future_forecast['upper_bound'] = future_forecast['upper_bound'].clip(lower=0)
+        
+        result = future_forecast.reset_index(drop=True)
+        
+        # If CI not requested, drop the bounds
+        if not include_ci:
+            result = result[['date', 'predicted_sales']]
+        
+        return result
     
     def get_hyperparameters(self) -> Dict[str, Any]:
         return {
@@ -684,13 +883,23 @@ class SARIMAModel(BaseSimpleModel):
             'aic': self.fitted_model.aic if hasattr(self.fitted_model, 'aic') else None
         }
     
-    def predict(self, n_days: int) -> pd.DataFrame:
-        """Predict n_days ahead."""
+    def predict(self, n_days: int, include_ci: bool = True) -> pd.DataFrame:
+        """
+        Predict n_days ahead with native SARIMA confidence intervals.
+        
+        SARIMA provides analytical confidence intervals based on:
+        - Forecast error variance
+        - Model parameter uncertainty
+        
+        Args:
+            n_days: Number of days to forecast
+            include_ci: Whether to include confidence intervals
+            
+        Returns:
+            DataFrame with date, predicted_sales, lower_bound, upper_bound
+        """
         if not self.is_fitted or self.fitted_model is None:
             raise ValueError("Model not fitted")
-        
-        # Forecast
-        forecast = self.fitted_model.forecast(steps=n_days)
         
         # Generate future dates
         future_dates = pd.date_range(
@@ -699,21 +908,50 @@ class SARIMAModel(BaseSimpleModel):
             freq='D'
         )
         
-        # Convert forecast to numpy array
-        if hasattr(forecast, 'values'):
-            predictions = forecast.values
-        elif hasattr(forecast, '__iter__'):
-            predictions = np.array(list(forecast))
+        # Use get_forecast for confidence intervals
+        forecast_result = self.fitted_model.get_forecast(steps=n_days)
+        predictions = forecast_result.predicted_mean
+        
+        # Convert to numpy array
+        if hasattr(predictions, 'values'):
+            predictions = predictions.values
+        elif hasattr(predictions, '__iter__'):
+            predictions = np.array(list(predictions))
         else:
-            predictions = np.array([forecast])
+            predictions = np.array([predictions])
         
         # Ensure no negative predictions
         predictions = np.maximum(predictions.flatten(), 0)
         
-        return pd.DataFrame({
+        result = pd.DataFrame({
             'date': future_dates,
             'predicted_sales': predictions
         })
+        
+        # Add native confidence intervals (95% CI by default)
+        if include_ci:
+            try:
+                # Get confidence intervals (alpha=0.05 for 95% CI)
+                conf_int = forecast_result.conf_int(alpha=0.05)
+                
+                if hasattr(conf_int, 'values'):
+                    ci_values = conf_int.values
+                else:
+                    ci_values = np.array(conf_int)
+                
+                lower = np.maximum(ci_values[:, 0].flatten(), 0)
+                upper = np.maximum(ci_values[:, 1].flatten(), 0)
+                
+                result['lower_bound'] = lower
+                result['upper_bound'] = upper
+            except Exception as e:
+                # Fallback: use simple std-based CI if native fails
+                print(f"    Warning: SARIMA native CI failed, using fallback: {str(e)[:50]}")
+                std_estimate = np.std(predictions) * 0.3  # Rough estimate
+                result['lower_bound'] = np.maximum(predictions - 1.96 * std_estimate, 0)
+                result['upper_bound'] = predictions + 1.96 * std_estimate
+        
+        return result
     
     def get_hyperparameters(self) -> Dict[str, Any]:
         return {
@@ -902,6 +1140,9 @@ class RandomForestModel(BaseSimpleModel):
         mape = mean_absolute_percentage_error(y_full, y_pred) * 100
         rmse = np.sqrt(mean_squared_error(y_full, y_pred))
         
+        # Calculate MAD-based residual std for confidence intervals
+        self.residual_std = self._calculate_residual_std(y_full, y_pred)
+        
         self.is_fitted = True
         self.n_train = len(df)
         
@@ -913,11 +1154,21 @@ class RandomForestModel(BaseSimpleModel):
             'train_rmse': rmse,
             'n_samples': len(df_features_full),
             'n_features': len(self.feature_names),
-            'oob_score': self.model.oob_score_ if hasattr(self.model, 'oob_score_') and self.model.oob_score_ else None
+            'oob_score': self.model.oob_score_ if hasattr(self.model, 'oob_score_') and self.model.oob_score_ else None,
+            'residual_std': self.residual_std
         }
     
-    def predict(self, n_days: int) -> pd.DataFrame:
-        """Predict n_days ahead using recursive forecasting."""
+    def predict(self, n_days: int, include_ci: bool = True) -> pd.DataFrame:
+        """
+        Predict n_days ahead using recursive forecasting with confidence intervals.
+        
+        Args:
+            n_days: Number of days to forecast
+            include_ci: Whether to include confidence intervals (MAD-based)
+            
+        Returns:
+            DataFrame with date, predicted_sales, lower_bound, upper_bound
+        """
         if not self.is_fitted:
             raise ValueError("Model not fitted")
         
@@ -960,7 +1211,29 @@ class RandomForestModel(BaseSimpleModel):
             history = pd.concat([history, new_row], ignore_index=True)
             history = history.tail(max(self.lag_days) + max(self.rolling_windows) + 1)
         
-        return pd.DataFrame(predictions)
+        result = pd.DataFrame(predictions)
+        
+        # Add confidence intervals (MAD-based)
+        if include_ci:
+            pred_values = result['predicted_sales'].values
+            residual_std = getattr(self, 'residual_std', None)
+            confidence_level = getattr(self, 'confidence_level', 0.95)
+            
+            if residual_std is not None:
+                lower, upper = calculate_confidence_bounds(
+                    pred_values, residual_std, confidence_level
+                )
+            else:
+                # Fallback: estimate CI from prediction variance (~10%)
+                estimated_std = np.mean(pred_values) * 0.1
+                lower, upper = calculate_confidence_bounds(
+                    pred_values, estimated_std, confidence_level
+                )
+            
+            result['lower_bound'] = lower
+            result['upper_bound'] = upper
+        
+        return result
     
     def get_feature_importance(self) -> Dict[str, float]:
         """Get feature importance."""

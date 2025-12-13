@@ -191,10 +191,14 @@ class APIClient {
     }
     
     /**
-     * Generate forecast (REST)
+     * Generate forecast (REST) with confidence intervals
      */
-    async generateForecast(horizon, model = 'best') {
-        return this.post('/api/forecast', { horizon, model });
+    async generateForecast(horizon, model = 'best', includeCI = true) {
+        return this.post('/api/forecast', { 
+            horizon, 
+            model,
+            include_ci: includeCI
+        });
     }
     
     /**

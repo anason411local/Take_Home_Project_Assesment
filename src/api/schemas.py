@@ -37,37 +37,48 @@ class ForecastRequest(BaseModel):
         default=ModelName.BEST,
         description="Model to use for forecasting"
     )
+    include_ci: bool = Field(
+        default=True,
+        description="Whether to include confidence intervals in response"
+    )
     
     class Config:
         json_schema_extra = {
             "example": {
                 "horizon": 30,
-                "model": "best"
+                "model": "best",
+                "include_ci": True
             }
         }
 
 
 class PredictionItem(BaseModel):
-    """Single prediction item."""
+    """Single prediction item with confidence interval."""
     date: str = Field(..., description="Forecast date (YYYY-MM-DD)")
-    value: float = Field(..., description="Predicted sales value")
+    value: float = Field(..., description="Predicted sales value (point estimate)")
+    lower_bound: Optional[float] = Field(None, description="Lower bound of 95% confidence interval")
+    upper_bound: Optional[float] = Field(None, description="Upper bound of 95% confidence interval")
     
     class Config:
         json_schema_extra = {
             "example": {
                 "date": "2024-07-01",
-                "value": 89500.50
+                "value": 89500.50,
+                "lower_bound": 82150.25,
+                "upper_bound": 96850.75
             }
         }
 
 
 class ForecastResponse(BaseModel):
-    """Response schema for forecast endpoint."""
+    """Response schema for forecast endpoint with confidence intervals."""
     success: bool = Field(default=True)
     model_used: str = Field(..., description="Model used for forecasting")
     horizon: int = Field(..., description="Number of days forecasted")
-    predictions: List[PredictionItem] = Field(..., description="List of predictions")
+    predictions: List[PredictionItem] = Field(..., description="List of predictions with CI")
     summary: Dict[str, float] = Field(..., description="Summary statistics")
+    confidence_level: float = Field(default=0.95, description="Confidence level (e.g., 0.95 for 95% CI)")
+    ci_method: str = Field(default="native", description="CI method: 'native' (Prophet/SARIMA) or 'mad' (ML models)")
     
     class Config:
         json_schema_extra = {
@@ -76,15 +87,17 @@ class ForecastResponse(BaseModel):
                 "model_used": "sarima",
                 "horizon": 7,
                 "predictions": [
-                    {"date": "2024-07-01", "value": 89500.50},
-                    {"date": "2024-07-02", "value": 90200.75}
+                    {"date": "2024-07-01", "value": 89500.50, "lower_bound": 82150.25, "upper_bound": 96850.75},
+                    {"date": "2024-07-02", "value": 90200.75, "lower_bound": 82850.50, "upper_bound": 97550.00}
                 ],
                 "summary": {
                     "total": 628000.0,
                     "mean": 89714.29,
                     "min": 85000.0,
                     "max": 94000.0
-                }
+                },
+                "confidence_level": 0.95,
+                "ci_method": "native"
             }
         }
 

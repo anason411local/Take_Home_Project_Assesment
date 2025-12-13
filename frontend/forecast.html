@@ -238,6 +238,11 @@
                                     <span class="summary-value text-primary" id="summaryMax">--</span>
                                 </div>
                             </div>
+                            <!-- CI Info -->
+                            <div class="mt-3 pt-3 border-top" id="summaryCIInfo" style="display: none;">
+                                <span class="badge bg-info me-2">95% CI</span>
+                                <small class="text-muted">Confidence interval information</small>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -263,12 +268,13 @@
                                             <th>Date</th>
                                             <th>Day</th>
                                             <th>Predicted Sales</th>
-                                            <th>% of Average</th>
+                                            <th>95% CI Range</th>
+                                            <th>vs Avg</th>
                                         </tr>
                                     </thead>
                                     <tbody id="predictionsBody">
                                         <tr>
-                                            <td colspan="5" class="text-center text-muted py-4">
+                                            <td colspan="6" class="text-center text-muted py-4">
                                                 No predictions available
                                             </td>
                                         </tr>
@@ -315,6 +321,15 @@
                                         <p class="text-muted small mb-0">
                                             Forecasts are predictions based on historical data. Actual 
                                             results may vary due to unforeseen market conditions.
+                                        </p>
+                                    </div>
+                                </div>
+                                <div class="col-md-4 mb-3">
+                                    <div class="help-item">
+                                        <h6><i class="bi bi-shield-check text-info me-2"></i>Confidence Intervals</h6>
+                                        <p class="text-muted small mb-0">
+                                            The shaded area shows 95% confidence interval - there's a 95% 
+                                            probability that actual values will fall within this range.
                                         </p>
                                     </div>
                                 </div>

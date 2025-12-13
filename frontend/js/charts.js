@@ -37,10 +37,11 @@ const Charts = {
     },
     
     /**
-     * Create historical sales chart with optional forecast
+     * Create historical sales chart with optional forecast and confidence intervals
      * Ensures proper date continuity
      */
-    createHistoricalChart(containerId, historicalData, forecastData = null) {
+    createHistoricalChart(containerId, historicalData, forecastData = null, options = {}) {
+        const { showConfidenceInterval = true } = options;
         const traces = [];
         
         // Sort historical data by date
@@ -68,10 +69,47 @@ const Charts = {
         if (forecastData && forecastData.length > 0 && sortedHistorical.length > 0) {
             const lastHistorical = sortedHistorical[sortedHistorical.length - 1];
             
+            // Check if confidence interval data is available
+            const hasCI = forecastData[0].lower_bound !== undefined && 
+                          forecastData[0].upper_bound !== undefined;
+            
             // Start forecast from last historical point for visual continuity
             const forecastX = [lastHistorical.date, ...forecastData.map(d => d.date)];
             const forecastY = [lastHistorical.daily_sales, ...forecastData.map(d => d.value)];
             
+            // CI bounds starting from last historical point
+            const ciLower = hasCI ? [lastHistorical.daily_sales, ...forecastData.map(d => d.lower_bound)] : [];
+            const ciUpper = hasCI ? [lastHistorical.daily_sales, ...forecastData.map(d => d.upper_bound)] : [];
+            
+            // Add confidence interval band FIRST (so it's behind the line)
+            if (hasCI && showConfidenceInterval) {
+                // Upper bound trace (invisible, just for fill)
+                traces.push({
+                    x: forecastX,
+                    y: ciUpper,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: '95% CI Upper',
+                    line: { color: 'transparent' },
+                    showlegend: false,
+                    hoverinfo: 'skip'
+                });
+                
+                // Lower bound trace with fill to upper
+                traces.push({
+                    x: forecastX,
+                    y: ciLower,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: '95% CI',
+                    fill: 'tonexty',
+                    fillcolor: 'rgba(255, 107, 107, 0.15)',
+                    line: { color: 'transparent' },
+                    hovertemplate: '<b>%{x|%b %d, %Y}</b><br>95% CI: $%{y:,.0f}<extra></extra>'
+                });
+            }
+            
+            // Forecast line
             traces.push({
                 x: forecastX,
                 y: forecastY,
@@ -94,12 +132,14 @@ const Charts = {
     },
     
     /**
-     * Create forecast chart with historical context
+     * Create forecast chart with historical context and confidence intervals
      * Shows last N days of historical data + forecast with proper continuity
+     * Includes shaded confidence band when CI data is available
      */
     createForecastChart(containerId, historicalData, forecastData, options = {}) {
         const {
-            historicalDays = 30
+            historicalDays = 30,
+            showConfidenceInterval = true
         } = options;
         
         const traces = [];
@@ -139,16 +179,58 @@ const Charts = {
         
         // Forecast trace - ensure continuity from last historical point
         if (forecastData && forecastData.length > 0) {
+            // Check if confidence interval data is available
+            const hasCI = forecastData[0].lower_bound !== undefined && 
+                          forecastData[0].upper_bound !== undefined;
+            
             // Build forecast line starting from last historical point
             const forecastX = [lastHistoricalPoint.date];
             const forecastY = [lastHistoricalPoint.daily_sales];
+            
+            // For CI band, also start from last historical point
+            const ciLower = hasCI ? [lastHistoricalPoint.daily_sales] : [];
+            const ciUpper = hasCI ? [lastHistoricalPoint.daily_sales] : [];
             
             // Add all forecast points
             forecastData.forEach(d => {
                 forecastX.push(d.date);
                 forecastY.push(d.value);
+                if (hasCI) {
+                    ciLower.push(d.lower_bound);
+                    ciUpper.push(d.upper_bound);
+                }
             });
             
+            // Add confidence interval band FIRST (so it's behind the line)
+            if (hasCI && showConfidenceInterval) {
+                // Create filled area for confidence interval
+                // Upper bound trace (invisible, just for fill)
+                traces.push({
+                    x: forecastX,
+                    y: ciUpper,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: '95% CI Upper',
+                    line: { color: 'transparent' },
+                    showlegend: false,
+                    hoverinfo: 'skip'
+                });
+                
+                // Lower bound trace with fill to upper
+                traces.push({
+                    x: forecastX,
+                    y: ciLower,
+                    type: 'scatter',
+                    mode: 'lines',
+                    name: '95% Confidence Interval',
+                    fill: 'tonexty',
+                    fillcolor: 'rgba(255, 107, 107, 0.2)',
+                    line: { color: 'transparent' },
+                    hovertemplate: '<b>%{x|%b %d, %Y}</b><br>95% CI: $%{y:,.0f}<extra></extra>'
+                });
+            }
+            
+            // Forecast line (on top of CI band)
             traces.push({
                 x: forecastX,
                 y: forecastY,
@@ -165,7 +247,13 @@ const Charts = {
                     color: CONFIG.CHART_COLORS.forecast,
                     symbol: 'diamond'
                 },
-                hovertemplate: '<b>%{x|%b %d, %Y}</b><br>Forecast: $%{y:,.0f}<extra></extra>'
+                hovertemplate: hasCI 
+                    ? '<b>%{x|%b %d, %Y}</b><br>Forecast: $%{y:,.0f}<br>CI: $' + 
+                      '%{customdata[0]:,.0f} - $%{customdata[1]:,.0f}<extra></extra>'
+                    : '<b>%{x|%b %d, %Y}</b><br>Forecast: $%{y:,.0f}<extra></extra>',
+                customdata: hasCI 
+                    ? forecastX.map((_, i) => [ciLower[i], ciUpper[i]])
+                    : undefined
             });
             
             // Add vertical line at forecast start
@@ -195,6 +283,21 @@ const Charts = {
                     size: 10 
                 }
             }];
+            
+            // Add CI label if available
+            if (hasCI && showConfidenceInterval) {
+                annotations.push({
+                    x: forecastData[Math.floor(forecastData.length / 2)].date,
+                    y: ciUpper[Math.floor(ciUpper.length / 2)],
+                    text: '95% CI',
+                    showarrow: false,
+                    font: { 
+                        color: 'rgba(255, 107, 107, 0.8)', 
+                        size: 10 
+                    },
+                    yshift: 15
+                });
+            }
         } else {
             var shapes = [];
             var annotations = [];

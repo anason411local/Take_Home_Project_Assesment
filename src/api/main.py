@@ -851,11 +851,11 @@ async def handle_websocket_forecast(
         )
         await asyncio.sleep(0.1)
         
-        # Generate forecast
+        # Generate forecast with confidence intervals
         if model_name == "ensemble":
-            forecast_df = forecaster.get_ensemble_forecast(horizon)
+            forecast_df = forecaster.get_ensemble_forecast(horizon, include_ci=True)
         else:
-            forecast_df = forecaster.forecast(model_name, horizon)
+            forecast_df = forecaster.forecast(model_name, horizon, include_ci=True)
         
         # Progress: Processing results
         await connection_manager.send_forecast_progress(
@@ -863,14 +863,20 @@ async def handle_websocket_forecast(
         )
         await asyncio.sleep(0.1)
         
-        # Format predictions
-        predictions = [
-            {
+        # Check if CI columns exist
+        has_ci = 'lower_bound' in forecast_df.columns and 'upper_bound' in forecast_df.columns
+        
+        # Format predictions with CI
+        predictions = []
+        for _, row in forecast_df.iterrows():
+            pred = {
                 "date": row['date'].strftime('%Y-%m-%d') if hasattr(row['date'], 'strftime') else str(row['date']),
                 "value": round(row['predicted_sales'], 2)
             }
-            for _, row in forecast_df.iterrows()
-        ]
+            if has_ci:
+                pred["lower_bound"] = round(row['lower_bound'], 2)
+                pred["upper_bound"] = round(row['upper_bound'], 2)
+            predictions.append(pred)
         
         # Calculate summary
         values = forecast_df['predicted_sales'].values
@@ -963,16 +969,21 @@ async def health_check():
         500: {"model": ErrorResponse, "description": "Internal server error"}
     },
     tags=["Forecasting"],
-    summary="Generate sales forecast"
+    summary="Generate sales forecast with confidence intervals"
 )
 async def forecast(request: ForecastRequest):
     """
-    Generate sales forecast for the specified number of days.
+    Generate sales forecast for the specified number of days with confidence intervals.
     
     - **horizon**: Number of days to forecast (1-365)
     - **model**: Model to use (default: best performing model)
+    - **include_ci**: Whether to include 95% confidence intervals (default: True)
     
-    Returns predictions with date and value for each day.
+    Confidence Interval Methods:
+    - **Prophet/SARIMA**: Native SD-based intervals from model
+    - **XGBoost/RandomForest/LinearTrend**: MAD-based intervals (robust to outliers)
+    
+    Returns predictions with date, value, and optional lower/upper bounds.
     """
     try:
         forecaster = get_forecaster()
@@ -990,6 +1001,10 @@ async def forecast(request: ForecastRequest):
                 )
             model_name = best_model['model_name']
         
+        # Determine CI method based on model type
+        native_ci_models = ['prophet', 'sarima']
+        ci_method = "native" if model_name in native_ci_models else "mad"
+        
         # Check if model is loaded
         if model_name == "ensemble":
             if not forecaster.models:
@@ -997,8 +1012,12 @@ async def forecast(request: ForecastRequest):
                     status_code=status.HTTP_404_NOT_FOUND,
                     detail="No models loaded for ensemble forecasting."
                 )
-            # Generate ensemble forecast
-            forecast_df = forecaster.get_ensemble_forecast(request.horizon)
+            # Generate ensemble forecast with CI
+            forecast_df = forecaster.get_ensemble_forecast(
+                request.horizon, 
+                include_ci=request.include_ci
+            )
+            ci_method = "ensemble"
         else:
             if model_name not in forecaster.models:
                 # Try to load the model
@@ -1011,17 +1030,26 @@ async def forecast(request: ForecastRequest):
                         detail=f"Model '{model_name}' not found. Available models: {list(forecaster.models.keys())}"
                     )
             
-            # Generate forecast
-            forecast_df = forecaster.forecast(model_name, request.horizon)
-        
-        # Format predictions
-        predictions = [
-            PredictionItem(
-                date=row['date'].strftime('%Y-%m-%d') if hasattr(row['date'], 'strftime') else str(row['date']),
-                value=round(row['predicted_sales'], 2)
+            # Generate forecast with CI
+            forecast_df = forecaster.forecast(
+                model_name, 
+                request.horizon, 
+                include_ci=request.include_ci
             )
-            for _, row in forecast_df.iterrows()
-        ]
+        
+        # Check if CI columns exist
+        has_ci = 'lower_bound' in forecast_df.columns and 'upper_bound' in forecast_df.columns
+        
+        # Format predictions with CI
+        predictions = []
+        for _, row in forecast_df.iterrows():
+            pred_item = PredictionItem(
+                date=row['date'].strftime('%Y-%m-%d') if hasattr(row['date'], 'strftime') else str(row['date']),
+                value=round(row['predicted_sales'], 2),
+                lower_bound=round(row['lower_bound'], 2) if has_ci and request.include_ci else None,
+                upper_bound=round(row['upper_bound'], 2) if has_ci and request.include_ci else None
+            )
+            predictions.append(pred_item)
         
         # Calculate summary
         values = forecast_df['predicted_sales'].values
@@ -1032,12 +1060,20 @@ async def forecast(request: ForecastRequest):
             "max": round(float(values.max()), 2)
         }
         
+        # Add CI summary if available
+        if has_ci and request.include_ci:
+            summary["ci_mean_width"] = round(float(
+                (forecast_df['upper_bound'] - forecast_df['lower_bound']).mean()
+            ), 2)
+        
         return ForecastResponse(
             success=True,
             model_used=model_name,
             horizon=request.horizon,
             predictions=predictions,
-            summary=summary
+            summary=summary,
+            confidence_level=0.95,
+            ci_method=ci_method if request.include_ci else "none"
         )
         
     except HTTPException:

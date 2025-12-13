@@ -1,7 +1,10 @@
 """
-Simple Forecaster for Sales Prediction.
+Forecaster for Sales Prediction with Confidence Intervals.
 
 Loads trained models and generates forecasts for N days.
+Supports confidence intervals using:
+- Native SD-based intervals for Prophet/SARIMA
+- MAD-based intervals for ML models (XGBoost, RandomForest, LinearTrend)
 """
 import pandas as pd
 import numpy as np
@@ -14,12 +17,12 @@ from ..models.models import BaseSimpleModel, MODEL_REGISTRY
 
 class Forecaster:
     """
-    Simple forecaster that loads trained models and generates predictions.
+    Forecaster that loads trained models and generates predictions with confidence intervals.
     
     Usage:
-        forecaster = SimpleForecaster()
+        forecaster = Forecaster()
         forecaster.load_model('prophet', 'models/saved/prophet.pkl')
-        predictions = forecaster.forecast('prophet', n_days=30)
+        predictions = forecaster.forecast('prophet', n_days=30, include_ci=True)
     """
     
     def __init__(self):
@@ -68,17 +71,23 @@ class Forecaster:
     def forecast(
         self,
         model_name: str,
-        n_days: int
+        n_days: int,
+        include_ci: bool = True
     ) -> pd.DataFrame:
         """
-        Generate forecast for n_days ahead.
+        Generate forecast for n_days ahead with optional confidence intervals.
         
         Args:
             model_name: Name of model to use
             n_days: Number of days to forecast
+            include_ci: Whether to include confidence intervals (default True)
             
         Returns:
-            DataFrame with date and predicted_sales columns
+            DataFrame with columns:
+            - date: Forecast date
+            - predicted_sales: Point prediction
+            - lower_bound: Lower CI bound (if include_ci=True)
+            - upper_bound: Upper CI bound (if include_ci=True)
         """
         if model_name not in self.models:
             raise ValueError(f"Model {model_name} not loaded")
@@ -88,16 +97,22 @@ class Forecaster:
         # Update model's last_date to match current data
         self._update_model_last_date(model)
         
-        predictions = model.predict(n_days)
+        # Call predict with include_ci parameter
+        predictions = model.predict(n_days, include_ci=include_ci)
         
         return predictions
     
-    def forecast_all(self, n_days: int) -> Dict[str, pd.DataFrame]:
+    def forecast_all(
+        self,
+        n_days: int,
+        include_ci: bool = True
+    ) -> Dict[str, pd.DataFrame]:
         """
         Generate forecasts from all loaded models.
         
         Args:
             n_days: Number of days to forecast
+            include_ci: Whether to include confidence intervals
             
         Returns:
             Dictionary of model_name -> predictions DataFrame
@@ -105,7 +120,7 @@ class Forecaster:
         results = {}
         for model_name in self.models:
             try:
-                results[model_name] = self.forecast(model_name, n_days)
+                results[model_name] = self.forecast(model_name, n_days, include_ci=include_ci)
             except Exception as e:
                 print(f"Error forecasting with {model_name}: {e}")
         
@@ -114,19 +129,24 @@ class Forecaster:
     def get_ensemble_forecast(
         self,
         n_days: int,
-        weights: Optional[Dict[str, float]] = None
+        weights: Optional[Dict[str, float]] = None,
+        include_ci: bool = True
     ) -> pd.DataFrame:
         """
         Generate ensemble forecast (weighted average of all models).
         
+        For confidence intervals, we combine the individual model CIs
+        using weighted average (approximation).
+        
         Args:
             n_days: Number of days to forecast
             weights: Optional weights for each model (default: equal weights)
+            include_ci: Whether to include confidence intervals
             
         Returns:
-            DataFrame with ensemble predictions
+            DataFrame with ensemble predictions and optional CI
         """
-        all_forecasts = self.forecast_all(n_days)
+        all_forecasts = self.forecast_all(n_days, include_ci=include_ci)
         
         if not all_forecasts:
             raise ValueError("No models loaded")
@@ -142,28 +162,46 @@ class Forecaster:
         # Get dates from first model
         dates = list(all_forecasts.values())[0]['date']
         
-        # Weighted average
+        # Weighted average of predictions
         ensemble_pred = np.zeros(n_days)
+        ensemble_lower = np.zeros(n_days) if include_ci else None
+        ensemble_upper = np.zeros(n_days) if include_ci else None
+        
         for model_name, forecast_df in all_forecasts.items():
             weight = weights.get(model_name, 0)
             ensemble_pred += weight * forecast_df['predicted_sales'].values
+            
+            if include_ci and 'lower_bound' in forecast_df.columns:
+                ensemble_lower += weight * forecast_df['lower_bound'].values
+                ensemble_upper += weight * forecast_df['upper_bound'].values
         
-        return pd.DataFrame({
+        result = pd.DataFrame({
             'date': dates,
             'predicted_sales': ensemble_pred
         })
+        
+        if include_ci and ensemble_lower is not None:
+            result['lower_bound'] = ensemble_lower
+            result['upper_bound'] = ensemble_upper
+        
+        return result
     
-    def compare_forecasts(self, n_days: int) -> pd.DataFrame:
+    def compare_forecasts(
+        self,
+        n_days: int,
+        include_ci: bool = False
+    ) -> pd.DataFrame:
         """
         Compare forecasts from all models side by side.
         
         Args:
             n_days: Number of days to forecast
+            include_ci: Whether to include CI columns for each model
             
         Returns:
             DataFrame with all model predictions
         """
-        all_forecasts = self.forecast_all(n_days)
+        all_forecasts = self.forecast_all(n_days, include_ci=include_ci)
         
         if not all_forecasts:
             raise ValueError("No models loaded")
@@ -174,5 +212,9 @@ class Forecaster:
         # Add each model's predictions
         for model_name, forecast_df in all_forecasts.items():
             result[model_name] = forecast_df['predicted_sales'].values
+            
+            if include_ci and 'lower_bound' in forecast_df.columns:
+                result[f'{model_name}_lower'] = forecast_df['lower_bound'].values
+                result[f'{model_name}_upper'] = forecast_df['upper_bound'].values
         
         return result

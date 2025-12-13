@@ -242,7 +242,7 @@ function createForecastChart(predictions) {
 }
 
 /**
- * Update summary section
+ * Update summary section with CI information
  */
 function updateSummary(data) {
     document.getElementById('summaryModel').textContent = Utils.getModelName(data.model_used);
@@ -258,10 +258,30 @@ function updateSummary(data) {
     document.getElementById('summaryMean').textContent = Utils.formatCurrency(data.summary.mean);
     document.getElementById('summaryMin').textContent = Utils.formatCurrency(data.summary.min);
     document.getElementById('summaryMax').textContent = Utils.formatCurrency(data.summary.max);
+    
+    // Update CI info if available
+    const ciInfoEl = document.getElementById('summaryCIInfo');
+    if (ciInfoEl) {
+        if (data.ci_method && data.ci_method !== 'none') {
+            const ciMethodName = data.ci_method === 'native' ? 'Native (SD-based)' : 
+                                 data.ci_method === 'mad' ? 'MAD-based (robust)' :
+                                 data.ci_method === 'ensemble' ? 'Ensemble weighted' : data.ci_method;
+            const ciWidth = data.summary.ci_mean_width 
+                ? Utils.formatCurrency(data.summary.ci_mean_width) 
+                : 'N/A';
+            ciInfoEl.innerHTML = `
+                <span class="badge bg-info me-2">95% CI</span>
+                <small class="text-muted">Method: ${ciMethodName} | Avg Width: ${ciWidth}</small>
+            `;
+            ciInfoEl.style.display = 'block';
+        } else {
+            ciInfoEl.style.display = 'none';
+        }
+    }
 }
 
 /**
- * Populate predictions table
+ * Populate predictions table with confidence intervals
  */
 function populatePredictionsTable(predictions, avgValue) {
     const tbody = document.getElementById('predictionsBody');
@@ -270,7 +290,7 @@ function populatePredictionsTable(predictions, avgValue) {
     if (predictions.length === 0) {
         tbody.innerHTML = `
             <tr>
-                <td colspan="5" class="text-center text-muted py-4">
+                <td colspan="6" class="text-center text-muted py-4">
                     No predictions available
                 </td>
             </tr>
@@ -278,22 +298,59 @@ function populatePredictionsTable(predictions, avgValue) {
         return;
     }
     
+    // Check if CI data is available
+    const hasCI = predictions[0].lower_bound !== undefined && 
+                  predictions[0].upper_bound !== undefined;
+    
     const rows = predictions.map((p, i) => {
         const percentOfAvg = ((p.value / avgValue) * 100).toFixed(1);
         const percentClass = p.value >= avgValue ? 'text-success' : 'text-danger';
+        
+        // Format CI range if available
+        let ciRange = '-';
+        if (hasCI && p.lower_bound !== null && p.upper_bound !== null) {
+            ciRange = `${Utils.formatCurrency(p.lower_bound)} - ${Utils.formatCurrency(p.upper_bound)}`;
+        }
         
         return `
             <tr>
                 <td>${i + 1}</td>
                 <td>${Utils.formatDate(p.date)}</td>
                 <td>${Utils.getDayName(p.date)}</td>
-                <td>${Utils.formatCurrency(p.value)}</td>
+                <td><strong>${Utils.formatCurrency(p.value)}</strong></td>
+                <td class="text-muted small">${ciRange}</td>
                 <td class="${percentClass}">${percentOfAvg}%</td>
             </tr>
         `;
     }).join('');
     
     tbody.innerHTML = rows;
+    
+    // Update table header if CI is available
+    updateTableHeader(hasCI);
+}
+
+/**
+ * Update table header to show CI column
+ */
+function updateTableHeader(hasCI) {
+    const thead = document.querySelector('#predictionsTable thead tr');
+    if (!thead) return;
+    
+    // Check if we need to add/update CI header
+    const existingHeaders = thead.querySelectorAll('th');
+    const expectedHeaders = hasCI ? 6 : 5;
+    
+    if (existingHeaders.length !== expectedHeaders) {
+        thead.innerHTML = `
+            <th>#</th>
+            <th>Date</th>
+            <th>Day</th>
+            <th>Predicted Sales</th>
+            ${hasCI ? '<th>95% CI Range</th>' : ''}
+            <th>vs Avg</th>
+        `;
+    }
 }
 
 /**

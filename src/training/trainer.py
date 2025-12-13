@@ -86,7 +86,8 @@ class ModelTrainer:
         n_optuna_trials: int = 10,
         test_size: float = 0.2,
         models_to_train: Optional[List[str]] = None,
-        use_database: bool = True
+        use_database: bool = True,
+        train_on_full_data: bool = True
     ):
         """
         Initialize trainer.
@@ -94,15 +95,18 @@ class ModelTrainer:
         Args:
             experiment_name: MLflow experiment name
             n_optuna_trials: Number of Optuna trials per model
-            test_size: Fraction of data for testing (temporal split)
+            test_size: Fraction of data for testing (temporal split for validation)
             models_to_train: List of model names (default: all)
             use_database: Whether to persist results to SQLite
+            train_on_full_data: If True, retrain final model on ALL data after optimization
+                               (Option 2: use CV metrics for validation, full data for production)
         """
         self.experiment_name = experiment_name
         self.n_optuna_trials = n_optuna_trials
         self.test_size = test_size
         self.models_to_train = models_to_train or list(MODEL_REGISTRY.keys())
         self.use_database = use_database
+        self.train_on_full_data = train_on_full_data
         
         self.results: Dict[str, TrainingResult] = {}
         self.trained_models: Dict[str, BaseSimpleModel] = {}
@@ -320,12 +324,16 @@ class ModelTrainer:
         # Start MLflow run
         with mlflow.start_run(run_name=f"{model_name}_{self.comparison_id}"):
             mlflow.log_param("model_name", model_name)
-            mlflow.log_param("train_size", split_info['train_size'])
-            mlflow.log_param("test_size", split_info['test_size'])
-            mlflow.log_param("train_start", split_info['train_start'])
-            mlflow.log_param("train_end", split_info['train_end'])
-            mlflow.log_param("test_start", split_info['test_start'])
-            mlflow.log_param("test_end", split_info['test_end'])
+            mlflow.log_param("train_on_full_data", self.train_on_full_data)
+            mlflow.log_param("validation_train_size", split_info['train_size'])
+            mlflow.log_param("validation_test_size", split_info['test_size'])
+            mlflow.log_param("validation_train_start", split_info['train_start'])
+            mlflow.log_param("validation_train_end", split_info['train_end'])
+            mlflow.log_param("validation_test_start", split_info['test_start'])
+            mlflow.log_param("validation_test_end", split_info['test_end'])
+            mlflow.log_param("total_data_size", len(df))
+            mlflow.log_param("final_train_start", df['date'].min().strftime('%Y-%m-%d'))
+            mlflow.log_param("final_train_end", df['date'].max().strftime('%Y-%m-%d'))
             
             # Optimize hyperparameters
             if optimize and self.n_optuna_trials > 0:
@@ -346,20 +354,31 @@ class ModelTrainer:
                         break
                 clean_params[clean_key] = value
             
-            # Train final model with best params
-            print("  Training final model...")
-            model = model_class(**clean_params)
-            train_info = model.fit(train_df, target_col)
+            # Train model on train_df first to get validation metrics
+            print("  Training model for validation metrics...")
+            model_for_validation = model_class(**clean_params)
+            model_for_validation.fit(train_df, target_col)
             
-            # Calculate training metrics
-            train_predictions = model.predict(len(train_df))
+            # Calculate training metrics (on train portion)
+            train_predictions = model_for_validation.predict(len(train_df))
             train_metrics = self._calculate_metrics(
                 train_df[target_col].values,
                 train_predictions['predicted_sales'].values
             )
             
-            # Evaluate on test set
-            test_metrics, test_predictions = self._evaluate_model(model, test_df, target_col)
+            # Evaluate on test set (validation metrics)
+            test_metrics, test_predictions = self._evaluate_model(model_for_validation, test_df, target_col)
+            
+            # Option 2: Retrain final model on ALL data for production
+            if self.train_on_full_data:
+                print("  Retraining final model on ALL data (Option 2)...")
+                model = model_class(**clean_params)
+                model.fit(df, target_col)  # Train on FULL dataset
+                print(f"    Final model trained on {len(df)} records (full data)")
+                print(f"    Last training date: {df['date'].max()}")
+            else:
+                # Keep the model trained only on train portion
+                model = model_for_validation
             
             # Get feature importance
             feature_importance = self._get_feature_importance(model, model_name)

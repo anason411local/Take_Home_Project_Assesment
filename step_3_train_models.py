@@ -10,6 +10,16 @@ This script:
 6. Stores feature importance for XGBoost and Random Forest
 7. Generates learning curves for XGBoost and Random Forest
 
+Training Modes:
+- Option 2 (Default): Train final model on ALL data
+  - Uses 80/20 split for validation metrics during Optuna
+  - Retrains final model on full dataset for production
+  - Best for production forecasting
+  
+- Option 1 (--holdout): Traditional holdout test set
+  - Final model trained only on 80% train data
+  - Test metrics from 20% holdout set
+
 Models:
 - Linear Trend: Simple but captures the upward trend
 - XGBoost: Gradient boosting with lag features (with learning curves)
@@ -18,7 +28,8 @@ Models:
 - SARIMA: Statistical time series model
 
 Usage:
-    python step_3_train_models.py
+    python step_3_train_models.py                    # Option 2: Full data (default)
+    python step_3_train_models.py --holdout          # Option 1: Holdout test set
     python step_3_train_models.py --trials 20
     python step_3_train_models.py --no-optimize
     python step_3_train_models.py --source csv
@@ -78,6 +89,11 @@ def parse_args():
         choices=['database', 'csv'],
         default='database',
         help='Data source: database (SQLite) or csv (default: database)'
+    )
+    parser.add_argument(
+        '--holdout',
+        action='store_true',
+        help='Use holdout test set (Option 1). Default is Option 2: train on all data'
     )
     return parser.parse_args()
 
@@ -147,13 +163,25 @@ def _run_training(args, terminal_logger):
     print(f"    Min:  ${df['daily_sales'].min():,.0f}")
     print(f"    Max:  ${df['daily_sales'].max():,.0f}")
     
+    # Determine training mode
+    train_on_full_data = not args.holdout
+    
+    print(f"\nTraining Mode: {'Option 2 - Full Data (recommended)' if train_on_full_data else 'Option 1 - Holdout Test Set'}")
+    if train_on_full_data:
+        print("  - Validation metrics from walk-forward CV during Optuna")
+        print("  - Final model trained on ALL data for production")
+    else:
+        print("  - Final model trained only on train portion (80%)")
+        print("  - Test metrics from holdout set (20%)")
+    
     # Initialize trainer
     trainer = ModelTrainer(
         experiment_name="sales_forecasting",
         n_optuna_trials=args.trials if not args.no_optimize else 0,
         test_size=args.test_size,
         models_to_train=args.models,
-        use_database=True  # Enable SQLite persistence
+        use_database=True,  # Enable SQLite persistence
+        train_on_full_data=train_on_full_data  # Option 2 by default
     )
     
     # Train all models
