@@ -44,6 +44,11 @@
                             <i class="bi bi-database me-1"></i> Data View
                         </a>
                     </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/app/data.html#eda" id="edaNavLink">
+                            <i class="bi bi-bar-chart-line me-1"></i> EDA
+                        </a>
+                    </li>
                 </ul>
                 <div class="d-flex align-items-center">
                     <!-- MLOps Dashboard Buttons -->
@@ -87,6 +92,12 @@
                             <button class="nav-link active" id="historical-tab" data-bs-toggle="tab" 
                                     data-bs-target="#historical" type="button" role="tab">
                                 <i class="bi bi-table me-2"></i>Historical Data
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="eda-tab" data-bs-toggle="tab" 
+                                    data-bs-target="#eda" type="button" role="tab">
+                                <i class="bi bi-bar-chart-line me-2"></i>EDA Analysis
                             </button>
                         </li>
                         <li class="nav-item" role="presentation">
@@ -203,6 +214,95 @@
                                             <div class="spinner-border text-primary" role="status"></div>
                                         </div>
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- EDA Analysis Tab -->
+                <div class="tab-pane fade" id="eda" role="tabpanel">
+                    <div class="row">
+                        <!-- Key Insights Card -->
+                        <div class="col-lg-4 mb-4">
+                            <div class="chart-card h-100">
+                                <div class="chart-header">
+                                    <h5 class="chart-title">
+                                        <i class="bi bi-lightbulb me-2"></i>Key Insights
+                                    </h5>
+                                </div>
+                                <div class="chart-body p-4">
+                                    <div id="edaInsights">
+                                        <div class="text-center py-4">
+                                            <div class="spinner-border text-primary" role="status"></div>
+                                            <p class="mt-2 text-muted">Loading insights...</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Statistics Summary -->
+                        <div class="col-lg-8 mb-4">
+                            <div class="chart-card h-100">
+                                <div class="chart-header">
+                                    <h5 class="chart-title">
+                                        <i class="bi bi-clipboard-data me-2"></i>Statistical Summary
+                                    </h5>
+                                </div>
+                                <div class="chart-body p-4">
+                                    <div id="edaStatistics">
+                                        <div class="text-center py-4">
+                                            <div class="spinner-border text-primary" role="status"></div>
+                                            <p class="mt-2 text-muted">Loading statistics...</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- EDA Visualizations -->
+                        <div class="col-12 mb-4">
+                            <div class="chart-card">
+                                <div class="chart-header">
+                                    <h5 class="chart-title">
+                                        <i class="bi bi-image me-2"></i>Data Visualizations
+                                    </h5>
+                                    <div class="chart-actions">
+                                        <select class="form-select form-select-sm" id="edaImageFilter" style="width: 180px;">
+                                            <option value="all">All Visualizations</option>
+                                            <option value="overview">Overview</option>
+                                            <option value="trend">Trend Analysis</option>
+                                            <option value="seasonality">Seasonality</option>
+                                            <option value="distribution">Distribution</option>
+                                            <option value="correlation">Correlation</option>
+                                        </select>
+                                    </div>
+                                </div>
+                                <div class="chart-body p-4">
+                                    <div class="row" id="edaImagesGrid">
+                                        <div class="col-12 text-center py-4">
+                                            <div class="spinner-border text-primary" role="status"></div>
+                                            <p class="mt-2 text-muted">Loading visualizations...</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Full Report -->
+                        <div class="col-12">
+                            <div class="chart-card">
+                                <div class="chart-header">
+                                    <h5 class="chart-title">
+                                        <i class="bi bi-file-text me-2"></i>Full EDA Report
+                                    </h5>
+                                    <button class="btn btn-sm btn-outline-primary" id="toggleReportBtn">
+                                        <i class="bi bi-chevron-down me-1"></i>Show Report
+                                    </button>
+                                </div>
+                                <div class="chart-body p-4 collapse" id="edaReportCollapse">
+                                    <pre class="eda-report-text" id="edaReportText">Loading report...</pre>
                                 </div>
                             </div>
                         </div>
@@ -594,6 +694,27 @@
                     Success!
                 </div>
                 <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- EDA Image Modal -->
+    <div class="modal fade eda-image-modal" id="edaImageModal" tabindex="-1">
+        <div class="modal-dialog modal-xl modal-dialog-centered">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h5 class="modal-title" id="edaImageModalTitle">Image</h5>
+                    <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+                </div>
+                <div class="modal-body">
+                    <img src="" alt="" id="edaImageModalImg">
+                </div>
+                <div class="modal-footer">
+                    <a href="" class="btn btn-primary" id="edaImageDownload" download>
+                        <i class="bi bi-download me-2"></i>Download
+                    </a>
+                    <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Close</button>
+                </div>
             </div>
         </div>
     </div>

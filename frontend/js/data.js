@@ -7,6 +7,8 @@
 let historicalData = [];
 let metricsData = null;
 let featureData = null;
+let edaData = null;
+let edaImages = [];
 let currentPage = 1;
 let pageSize = 100;
 
@@ -80,6 +82,11 @@ async function handleTabChange(e) {
     switch (targetId) {
         case 'historical':
             // Already loaded
+            break;
+        case 'eda':
+            if (!edaData) {
+                await loadEDAData();
+            }
             break;
         case 'metrics':
             if (!metricsData) {
@@ -251,6 +258,280 @@ function handleExportData() {
     
     Utils.showSuccess('Data exported successfully!');
 }
+
+// ==================== EDA ANALYSIS ====================
+
+/**
+ * Load EDA data
+ */
+async function loadEDAData() {
+    try {
+        // Load report and images in parallel
+        const [reportResponse, imagesResponse] = await Promise.all([
+            api.get('/api/eda/report'),
+            api.get('/api/eda/images')
+        ]);
+        
+        if (reportResponse.success) {
+            edaData = reportResponse;
+            
+            // Display insights
+            displayEDAInsights(reportResponse.insights);
+            
+            // Display statistics
+            displayEDAStatistics(reportResponse.sections);
+            
+            // Setup report toggle
+            setupReportToggle(reportResponse.report);
+        }
+        
+        if (imagesResponse.success) {
+            edaImages = imagesResponse.images;
+            
+            // Display images
+            displayEDAImages(edaImages);
+            
+            // Setup filter
+            setupEDAImageFilter();
+        }
+        
+    } catch (error) {
+        console.error('Failed to load EDA data:', error);
+        
+        // Show error message in containers
+        document.getElementById('edaInsights').innerHTML = `
+            <div class="alert alert-warning">
+                <i class="bi bi-exclamation-triangle me-2"></i>
+                EDA reports not found. Run <code>step_2_eda_analysis.py</code> first.
+            </div>
+        `;
+        document.getElementById('edaStatistics').innerHTML = '';
+        document.getElementById('edaImagesGrid').innerHTML = `
+            <div class="col-12 text-center py-4 text-muted">
+                No visualizations available
+            </div>
+        `;
+    }
+}
+
+/**
+ * Display EDA key insights
+ */
+function displayEDAInsights(insights) {
+    const container = document.getElementById('edaInsights');
+    if (!container) return;
+    
+    if (!insights || insights.length === 0) {
+        container.innerHTML = '<p class="text-muted">No insights available</p>';
+        return;
+    }
+    
+    const insightsHtml = insights.map((insight, index) => `
+        <div class="eda-insight-item">
+            <i class="bi bi-lightbulb-fill"></i>
+            ${insight}
+        </div>
+    `).join('');
+    
+    container.innerHTML = insightsHtml;
+}
+
+/**
+ * Display EDA statistics
+ */
+function displayEDAStatistics(sections) {
+    const container = document.getElementById('edaStatistics');
+    if (!container) return;
+    
+    if (!sections || Object.keys(sections).length === 0) {
+        container.innerHTML = '<p class="text-muted">No statistics available</p>';
+        return;
+    }
+    
+    // Parse sections into structured data
+    const stats = [];
+    
+    // Parse basic statistics
+    if (sections['1. BASIC STATISTICS']) {
+        const lines = sections['1. BASIC STATISTICS'].split('\n');
+        lines.forEach(line => {
+            const match = line.match(/^\s*(.+?):\s*(.+)$/);
+            if (match) {
+                stats.push({ label: match[1].trim(), value: match[2].trim(), category: 'basic' });
+            }
+        });
+    }
+    
+    // Parse trend analysis
+    if (sections['2. TREND ANALYSIS']) {
+        const lines = sections['2. TREND ANALYSIS'].split('\n');
+        lines.forEach(line => {
+            const match = line.match(/^\s*(.+?):\s*(.+)$/);
+            if (match) {
+                const value = match[2].trim();
+                const isPositive = value.includes('UPWARD') || value.includes('%');
+                stats.push({ 
+                    label: match[1].trim(), 
+                    value: value, 
+                    category: 'trend',
+                    positive: isPositive
+                });
+            }
+        });
+    }
+    
+    // Parse seasonality
+    if (sections['3. SEASONALITY']) {
+        const lines = sections['3. SEASONALITY'].split('\n');
+        lines.forEach(line => {
+            const match = line.match(/^\s*(.+?):\s*(.+)$/);
+            if (match) {
+                stats.push({ label: match[1].trim(), value: match[2].trim(), category: 'seasonality' });
+            }
+        });
+    }
+    
+    // Group by category
+    const categories = {
+        'basic': { title: 'Basic Statistics', icon: 'bi-calculator', stats: [] },
+        'trend': { title: 'Trend Analysis', icon: 'bi-graph-up-arrow', stats: [] },
+        'seasonality': { title: 'Seasonality', icon: 'bi-calendar-week', stats: [] }
+    };
+    
+    stats.forEach(stat => {
+        if (categories[stat.category]) {
+            categories[stat.category].stats.push(stat);
+        }
+    });
+    
+    // Build HTML
+    let html = '<div class="row">';
+    
+    Object.values(categories).forEach(category => {
+        if (category.stats.length > 0) {
+            html += `
+                <div class="col-md-4 mb-3">
+                    <div class="eda-section-header">
+                        <i class="bi ${category.icon} me-2"></i>${category.title}
+                    </div>
+                    <div class="eda-stat-grid">
+                        ${category.stats.slice(0, 4).map(stat => `
+                            <div class="eda-stat-item">
+                                <div class="eda-stat-label">${stat.label}</div>
+                                <div class="eda-stat-value ${stat.positive ? 'positive' : ''}">${stat.value}</div>
+                            </div>
+                        `).join('')}
+                    </div>
+                </div>
+            `;
+        }
+    });
+    
+    html += '</div>';
+    container.innerHTML = html;
+}
+
+/**
+ * Display EDA images
+ */
+function displayEDAImages(images, filter = 'all') {
+    const container = document.getElementById('edaImagesGrid');
+    if (!container) return;
+    
+    // Filter images
+    const filteredImages = filter === 'all' 
+        ? images 
+        : images.filter(img => img.category === filter);
+    
+    if (filteredImages.length === 0) {
+        container.innerHTML = `
+            <div class="col-12 text-center py-4 text-muted">
+                No visualizations found for this category
+            </div>
+        `;
+        return;
+    }
+    
+    const imagesHtml = filteredImages.map(img => `
+        <div class="col-lg-4 col-md-6 mb-4">
+            <div class="eda-image-card position-relative" onclick="openEDAImage('${img.url}', '${img.title}')">
+                <span class="badge category-${img.category} category-badge">${img.category}</span>
+                <img src="${img.url}" alt="${img.title}" loading="lazy">
+                <div class="card-body">
+                    <h6 class="card-title">${img.title}</h6>
+                    <p class="card-text">${img.description}</p>
+                </div>
+            </div>
+        </div>
+    `).join('');
+    
+    container.innerHTML = imagesHtml;
+}
+
+/**
+ * Setup EDA image filter
+ */
+function setupEDAImageFilter() {
+    const filter = document.getElementById('edaImageFilter');
+    if (!filter) return;
+    
+    filter.addEventListener('change', (e) => {
+        displayEDAImages(edaImages, e.target.value);
+    });
+}
+
+/**
+ * Open EDA image in modal
+ */
+function openEDAImage(url, title) {
+    const modal = document.getElementById('edaImageModal');
+    const modalTitle = document.getElementById('edaImageModalTitle');
+    const modalImg = document.getElementById('edaImageModalImg');
+    const downloadLink = document.getElementById('edaImageDownload');
+    
+    if (!modal) return;
+    
+    modalTitle.textContent = title;
+    modalImg.src = url;
+    modalImg.alt = title;
+    downloadLink.href = url;
+    
+    const bsModal = new bootstrap.Modal(modal);
+    bsModal.show();
+}
+
+/**
+ * Setup report toggle
+ */
+function setupReportToggle(report) {
+    const toggleBtn = document.getElementById('toggleReportBtn');
+    const collapse = document.getElementById('edaReportCollapse');
+    const reportText = document.getElementById('edaReportText');
+    
+    if (!toggleBtn || !collapse) return;
+    
+    // Set report content
+    if (reportText) {
+        reportText.textContent = report;
+    }
+    
+    // Toggle functionality
+    toggleBtn.addEventListener('click', () => {
+        const isCollapsed = !collapse.classList.contains('show');
+        
+        if (isCollapsed) {
+            collapse.classList.add('show');
+            toggleBtn.innerHTML = '<i class="bi bi-chevron-up me-1"></i>Hide Report';
+        } else {
+            collapse.classList.remove('show');
+            toggleBtn.innerHTML = '<i class="bi bi-chevron-down me-1"></i>Show Report';
+        }
+    });
+}
+
+// Make openEDAImage globally accessible
+window.openEDAImage = openEDAImage;
+
 
 // ==================== METRICS ====================
 
@@ -640,5 +921,26 @@ function formatFileSize(bytes) {
 // Initialize when DOM is ready
 $(document).ready(function() {
     initDataView();
+    
+    // Handle hash-based tab navigation
+    if (window.location.hash) {
+        const hash = window.location.hash.replace('#', '');
+        const tabButton = document.getElementById(`${hash}-tab`);
+        if (tabButton) {
+            // Trigger tab click
+            setTimeout(() => {
+                tabButton.click();
+            }, 100);
+        }
+    }
+    
+    // Update hash when tab changes
+    const tabEls = document.querySelectorAll('button[data-bs-toggle="tab"]');
+    tabEls.forEach(tab => {
+        tab.addEventListener('shown.bs.tab', (e) => {
+            const targetId = e.target.getAttribute('data-bs-target').replace('#', '');
+            history.replaceState(null, null, `#${targetId}`);
+        });
+    });
 });
 

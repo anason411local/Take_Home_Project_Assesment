@@ -948,3 +948,170 @@ body {
         display: none;
     }
 }
+
+/* ==================== EDA ANALYSIS STYLES ==================== */
+
+/* Insight cards */
+.eda-insight-item {
+    padding: 0.75rem;
+    margin-bottom: 0.75rem;
+    background: var(--bg-body);
+    border-radius: var(--border-radius);
+    border-left: 3px solid var(--primary-color);
+    font-size: 0.875rem;
+    color: var(--text-primary);
+}
+
+.eda-insight-item:last-child {
+    margin-bottom: 0;
+}
+
+.eda-insight-item i {
+    color: var(--primary-color);
+    margin-right: 0.5rem;
+}
+
+/* Statistics grid */
+.eda-stat-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 1rem;
+}
+
+.eda-stat-item {
+    padding: 1rem;
+    background: var(--bg-body);
+    border-radius: var(--border-radius);
+    text-align: center;
+    border: 1px solid var(--border-color);
+}
+
+.eda-stat-label {
+    font-size: 0.75rem;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 0.25rem;
+}
+
+.eda-stat-value {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+.eda-stat-value.positive {
+    color: var(--success-color);
+}
+
+.eda-stat-value.negative {
+    color: var(--danger-color);
+}
+
+/* EDA Image cards */
+.eda-image-card {
+    background: var(--bg-card);
+    border-radius: var(--border-radius);
+    border: 1px solid var(--border-color);
+    overflow: hidden;
+    transition: var(--transition-fast);
+    cursor: pointer;
+    height: 100%;
+}
+
+.eda-image-card:hover {
+    transform: translateY(-2px);
+    box-shadow: var(--shadow-lg);
+    border-color: var(--primary-color);
+}
+
+.eda-image-card img {
+    width: 100%;
+    height: 200px;
+    object-fit: cover;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.eda-image-card .card-body {
+    padding: 1rem;
+}
+
+.eda-image-card .card-title {
+    font-size: 0.9375rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: 0.25rem;
+}
+
+.eda-image-card .card-text {
+    font-size: 0.8125rem;
+    color: var(--text-muted);
+    margin-bottom: 0;
+}
+
+.eda-image-card .category-badge {
+    position: absolute;
+    top: 0.5rem;
+    right: 0.5rem;
+    font-size: 0.6875rem;
+    padding: 0.25rem 0.5rem;
+}
+
+/* EDA Report text */
+.eda-report-text {
+    background: var(--bg-body);
+    padding: 1.5rem;
+    border-radius: var(--border-radius);
+    font-family: 'Consolas', 'Monaco', monospace;
+    font-size: 0.8125rem;
+    line-height: 1.6;
+    color: var(--text-primary);
+    white-space: pre-wrap;
+    max-height: 500px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+}
+
+/* Image modal */
+.eda-image-modal .modal-dialog {
+    max-width: 90vw;
+}
+
+.eda-image-modal .modal-body {
+    padding: 0;
+    text-align: center;
+    background: var(--bg-body);
+}
+
+.eda-image-modal .modal-body img {
+    max-width: 100%;
+    max-height: 80vh;
+    object-fit: contain;
+}
+
+.eda-image-modal .modal-header {
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border-color);
+}
+
+.eda-image-modal .modal-title {
+    font-weight: 600;
+    color: var(--text-primary);
+}
+
+/* Section headers in statistics */
+.eda-section-header {
+    font-size: 0.875rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    padding-bottom: 0.5rem;
+    margin-bottom: 1rem;
+    border-bottom: 2px solid var(--primary-color);
+}
+
+/* Category badges */
+.category-overview { background: var(--gradient-primary); }
+.category-trend { background: var(--gradient-success); }
+.category-seasonality { background: var(--gradient-warning); }
+.category-distribution { background: var(--gradient-info); }
+.category-correlation { background: var(--gradient-danger); }

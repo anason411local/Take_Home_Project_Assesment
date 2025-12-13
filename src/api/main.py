@@ -1621,6 +1621,225 @@ async def stop_optuna_dashboard():
         )
 
 
+# ==================== EDA ENDPOINTS ====================
+
+@app.get(
+    "/api/eda/report",
+    tags=["EDA"],
+    summary="Get EDA report"
+)
+async def get_eda_report():
+    """
+    Get the exploratory data analysis report.
+    
+    Returns the EDA report text and key insights.
+    """
+    try:
+        eda_dir = project_root / "reports" / "eda"
+        
+        if not eda_dir.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="EDA reports not found. Run step_2_eda_analysis.py first."
+            )
+        
+        # Read EDA report
+        report_path = eda_dir / "eda_report.txt"
+        report_content = ""
+        if report_path.exists():
+            try:
+                with open(report_path, 'r', encoding='utf-8') as f:
+                    report_content = f.read()
+            except UnicodeDecodeError:
+                with open(report_path, 'r', encoding='latin-1') as f:
+                    report_content = f.read()
+        
+        # Read key insights
+        insights_path = eda_dir / "key_insights.txt"
+        insights_content = ""
+        if insights_path.exists():
+            try:
+                with open(insights_path, 'r', encoding='utf-8') as f:
+                    insights_content = f.read()
+            except UnicodeDecodeError:
+                with open(insights_path, 'r', encoding='latin-1') as f:
+                    insights_content = f.read()
+        
+        # Parse report into sections
+        sections = {}
+        current_section = None
+        current_content = []
+        
+        for line in report_content.split('\n'):
+            if line.startswith('1. ') or line.startswith('2. ') or line.startswith('3. ') or \
+               line.startswith('4. ') or line.startswith('5. ') or line.startswith('6. '):
+                if current_section:
+                    sections[current_section] = '\n'.join(current_content)
+                current_section = line.strip()
+                current_content = []
+            elif current_section and line.strip() and not line.startswith('===') and not line.startswith('---'):
+                current_content.append(line.strip())
+        
+        if current_section:
+            sections[current_section] = '\n'.join(current_content)
+        
+        # Parse key insights into list
+        insights_list = []
+        for line in insights_content.split('\n'):
+            if line.strip() and line[0].isdigit():
+                # Remove the number prefix
+                insight = line.split('.', 1)[1].strip() if '.' in line else line.strip()
+                insights_list.append(insight)
+        
+        return {
+            "success": True,
+            "report": report_content,
+            "insights": insights_list,
+            "sections": sections
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get EDA report: {str(e)}"
+        )
+
+
+@app.get(
+    "/api/eda/images",
+    tags=["EDA"],
+    summary="List EDA images"
+)
+async def list_eda_images():
+    """
+    List all available EDA visualization images.
+    
+    Returns a list of image names and their descriptions.
+    """
+    try:
+        eda_dir = project_root / "reports" / "eda"
+        
+        if not eda_dir.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="EDA reports not found. Run step_2_eda_analysis.py first."
+            )
+        
+        # Define image descriptions
+        image_info = {
+            "summary_dashboard.png": {
+                "title": "Summary Dashboard",
+                "description": "Complete overview of all EDA visualizations",
+                "category": "overview"
+            },
+            "time_series.png": {
+                "title": "Time Series Analysis",
+                "description": "Daily sales over time with moving averages",
+                "category": "trend"
+            },
+            "trend_analysis.png": {
+                "title": "Trend Analysis",
+                "description": "Linear trend and growth rate analysis",
+                "category": "trend"
+            },
+            "seasonality.png": {
+                "title": "Seasonality Patterns",
+                "description": "Day-of-week and monthly patterns",
+                "category": "seasonality"
+            },
+            "distribution.png": {
+                "title": "Sales Distribution",
+                "description": "Histogram and statistical distribution of sales",
+                "category": "distribution"
+            },
+            "correlation_heatmap.png": {
+                "title": "Correlation Heatmap",
+                "description": "Feature correlations with daily sales",
+                "category": "correlation"
+            },
+            "boxplots.png": {
+                "title": "Box Plots",
+                "description": "Sales distribution by day of week and outlier analysis",
+                "category": "distribution"
+            }
+        }
+        
+        # Find available images
+        images = []
+        for img_file in eda_dir.glob("*.png"):
+            img_name = img_file.name
+            if img_name in image_info:
+                images.append({
+                    "filename": img_name,
+                    "url": f"/api/eda/image/{img_name}",
+                    **image_info[img_name]
+                })
+            else:
+                images.append({
+                    "filename": img_name,
+                    "url": f"/api/eda/image/{img_name}",
+                    "title": img_name.replace('_', ' ').replace('.png', '').title(),
+                    "description": "EDA visualization",
+                    "category": "other"
+                })
+        
+        # Sort by category order
+        category_order = ["overview", "trend", "seasonality", "distribution", "correlation", "other"]
+        images.sort(key=lambda x: (category_order.index(x["category"]) if x["category"] in category_order else 99, x["title"]))
+        
+        return {
+            "success": True,
+            "total": len(images),
+            "images": images
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to list EDA images: {str(e)}"
+        )
+
+
+@app.get(
+    "/api/eda/image/{filename}",
+    tags=["EDA"],
+    summary="Get EDA image"
+)
+async def get_eda_image(filename: str):
+    """
+    Get a specific EDA visualization image.
+    
+    - **filename**: Name of the image file (e.g., time_series.png)
+    """
+    try:
+        eda_dir = project_root / "reports" / "eda"
+        image_path = eda_dir / filename
+        
+        if not image_path.exists():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Image not found: {filename}"
+            )
+        
+        return FileResponse(
+            str(image_path),
+            media_type="image/png",
+            filename=filename
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get EDA image: {str(e)}"
+        )
+
+
 # ==================== FRONTEND ROUTES ====================
 
 @app.get("/app", tags=["Frontend"], include_in_schema=False)
