@@ -29,6 +29,7 @@ from ..models.models import (
     BaseSimpleModel,
     LinearTrendModel,
     XGBoostModel,
+    RandomForestModel,
     ProphetModel,
     SARIMAModel,
     MODEL_REGISTRY
@@ -200,7 +201,7 @@ class ModelTrainer:
     
     def _get_feature_importance(self, model: BaseSimpleModel, model_name: str) -> Optional[Dict[str, float]]:
         """Extract feature importance if available."""
-        if model_name == 'xgboost' and hasattr(model, 'get_feature_importance'):
+        if model_name in ['xgboost', 'random_forest'] and hasattr(model, 'get_feature_importance'):
             importance = model.get_feature_importance()
             if importance:
                 # Save to CSV
@@ -210,6 +211,17 @@ class ModelTrainer:
                 ])
                 importance_df.to_csv(f'models/feature_importance/{model_name}_importance.csv', index=False)
                 return importance
+        return None
+    
+    def _save_learning_curve(self, model: BaseSimpleModel, model_name: str) -> Optional[str]:
+        """Save learning curve plot if available."""
+        if model_name in ['xgboost', 'random_forest'] and hasattr(model, 'plot_learning_curve'):
+            try:
+                save_path = f"models/learning_curves/{model_name}_learning_curve.png"
+                model.plot_learning_curve(save_path)
+                return save_path
+            except Exception as e:
+                print(f"  Warning: Could not save learning curve: {e}")
         return None
     
     def _optimize_hyperparameters(
@@ -234,7 +246,7 @@ class ModelTrainer:
                 clean_params = {}
                 for key, value in params.items():
                     clean_key = key
-                    for prefix in ['lt_', 'xgb_', 'prophet_', 'sarima_']:
+                    for prefix in ['lt_', 'xgb_', 'rf_', 'prophet_', 'sarima_']:
                         if key.startswith(prefix):
                             clean_key = key[len(prefix):]
                             break
@@ -328,7 +340,7 @@ class ModelTrainer:
             clean_params = {}
             for key, value in best_params.items():
                 clean_key = key
-                for prefix in ['lt_', 'xgb_', 'prophet_', 'sarima_']:
+                for prefix in ['lt_', 'xgb_', 'rf_', 'prophet_', 'sarima_']:
                     if key.startswith(prefix):
                         clean_key = key[len(prefix):]
                         break
@@ -351,6 +363,11 @@ class ModelTrainer:
             
             # Get feature importance
             feature_importance = self._get_feature_importance(model, model_name)
+            
+            # Save learning curve for ML models
+            learning_curve_path = self._save_learning_curve(model, model_name)
+            if learning_curve_path:
+                mlflow.log_artifact(learning_curve_path)
             
             # Log all metrics to MLflow
             mlflow.log_metric("train_mape", train_metrics['mape'])
@@ -376,6 +393,31 @@ class ModelTrainer:
             if feature_importance:
                 importance_path = f"models/feature_importance/{model_name}_importance.csv"
                 mlflow.log_artifact(importance_path)
+            
+            # Save learning curve data to database
+            if self.use_database and hasattr(model, 'get_learning_curve_data'):
+                lc_data = model.get_learning_curve_data()
+                if lc_data:
+                    # For XGBoost
+                    if 'train_losses' in lc_data and lc_data['train_losses']:
+                        self.db.save_learning_curve(
+                            run_id=run_id,
+                            model_name=model_name,
+                            train_losses=lc_data['train_losses'],
+                            val_losses=lc_data.get('val_losses'),
+                            metric_type='rmse'
+                        )
+                    # For Random Forest
+                    elif 'train_scores' in lc_data and lc_data['train_scores']:
+                        train_losses = [s['rmse'] for s in lc_data['train_scores']]
+                        val_losses = [s['rmse'] for s in lc_data.get('oob_scores', [])] if lc_data.get('oob_scores') else None
+                        self.db.save_learning_curve(
+                            run_id=run_id,
+                            model_name=model_name,
+                            train_losses=train_losses,
+                            val_losses=val_losses,
+                            metric_type='rmse'
+                        )
             
             training_time = time.time() - start_time
             mlflow.log_metric("training_time", training_time)

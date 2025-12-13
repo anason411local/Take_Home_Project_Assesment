@@ -134,6 +134,20 @@ class DatabaseManager:
                     created_at TEXT DEFAULT CURRENT_TIMESTAMP
                 )
             """)
+            
+            # Learning curves for ML models
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS learning_curves (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    run_id TEXT NOT NULL,
+                    model_name TEXT NOT NULL,
+                    iteration INTEGER NOT NULL,
+                    train_loss REAL,
+                    val_loss REAL,
+                    metric_type TEXT DEFAULT 'rmse',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
     
     # ==================== INPUT DATA ====================
     
@@ -374,6 +388,92 @@ class DatabaseManager:
             df = pd.read_sql_query(query, conn, parse_dates=['forecast_date'])
         return df
     
+    def get_latest_forecast_id(self) -> Optional[str]:
+        """Get the most recent forecast ID."""
+        with sqlite3.connect(self.results_db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT forecast_id FROM forecasts ORDER BY created_at DESC LIMIT 1")
+            row = cursor.fetchone()
+        return row[0] if row else None
+    
+    def get_forecast_comparison(self, forecast_id: Optional[str] = None) -> pd.DataFrame:
+        """
+        Get forecast comparison view (pivot table with all models side by side).
+        
+        Returns DataFrame with columns: date, linear_trend, xgboost, random_forest, prophet, sarima
+        """
+        if forecast_id is None:
+            forecast_id = self.get_latest_forecast_id()
+        
+        if forecast_id is None:
+            return pd.DataFrame()
+        
+        df = self.get_forecasts(forecast_id=forecast_id)
+        
+        if df.empty:
+            return pd.DataFrame()
+        
+        # Pivot to get comparison view
+        comparison = df.pivot_table(
+            index='forecast_date',
+            columns='model_name',
+            values='predicted_sales',
+            aggfunc='first'
+        ).reset_index()
+        
+        comparison.columns.name = None
+        comparison = comparison.rename(columns={'forecast_date': 'date'})
+        
+        return comparison
+    
+    def get_forecast_summary(self, forecast_id: Optional[str] = None) -> Dict[str, Any]:
+        """
+        Get summary statistics for a forecast.
+        
+        Returns dict with model-wise statistics.
+        """
+        if forecast_id is None:
+            forecast_id = self.get_latest_forecast_id()
+        
+        if forecast_id is None:
+            return {}
+        
+        df = self.get_forecasts(forecast_id=forecast_id)
+        
+        if df.empty:
+            return {}
+        
+        summary = {
+            'forecast_id': forecast_id,
+            'n_days': int(df['day_number'].max()),
+            'date_range': {
+                'start': df['forecast_date'].min().strftime('%Y-%m-%d'),
+                'end': df['forecast_date'].max().strftime('%Y-%m-%d')
+            },
+            'models': {}
+        }
+        
+        for model_name in df['model_name'].unique():
+            model_df = df[df['model_name'] == model_name]
+            preds = model_df['predicted_sales'].values
+            summary['models'][model_name] = {
+                'total': float(preds.sum()),
+                'mean': float(preds.mean()),
+                'min': float(preds.min()),
+                'max': float(preds.max()),
+                'std': float(preds.std())
+            }
+        
+        return summary
+    
+    def list_forecast_ids(self) -> List[str]:
+        """Get list of all forecast IDs."""
+        with sqlite3.connect(self.results_db_path) as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT DISTINCT forecast_id FROM forecasts ORDER BY created_at DESC")
+            rows = cursor.fetchall()
+        return [row[0] for row in rows]
+    
     # ==================== EDA INSIGHTS ====================
     
     def save_eda_insights(self, analysis_id: str, insights: Dict[str, Any]):
@@ -399,6 +499,40 @@ class DatabaseManager:
         if analysis_id:
             query += f" WHERE analysis_id = '{analysis_id}'"
         query += " ORDER BY created_at DESC"
+        
+        with sqlite3.connect(self.results_db_path) as conn:
+            df = pd.read_sql_query(query, conn)
+        return df
+    
+    # ==================== LEARNING CURVES ====================
+    
+    def save_learning_curve(
+        self,
+        run_id: str,
+        model_name: str,
+        train_losses: List[float],
+        val_losses: List[float] = None,
+        metric_type: str = 'rmse'
+    ):
+        """Save learning curve data to database."""
+        with sqlite3.connect(self.results_db_path) as conn:
+            for i, train_loss in enumerate(train_losses):
+                val_loss = val_losses[i] if val_losses and i < len(val_losses) else None
+                conn.execute("""
+                    INSERT INTO learning_curves 
+                    (run_id, model_name, iteration, train_loss, val_loss, metric_type)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                """, (run_id, model_name, i + 1, train_loss, val_loss, metric_type))
+            conn.commit()
+    
+    def get_learning_curve(self, run_id: str = None, model_name: str = None) -> pd.DataFrame:
+        """Get learning curve data from database."""
+        query = "SELECT * FROM learning_curves WHERE 1=1"
+        if run_id:
+            query += f" AND run_id = '{run_id}'"
+        if model_name:
+            query += f" AND model_name = '{model_name}'"
+        query += " ORDER BY run_id DESC, iteration ASC"
         
         with sqlite3.connect(self.results_db_path) as conn:
             df = pd.read_sql_query(query, conn)

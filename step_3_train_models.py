@@ -3,15 +3,17 @@ Step 3: Train Models for Sales Forecasting
 
 This script:
 1. Loads sales data from SQLite database (or CSV fallback)
-2. Trains 4 models: Linear Trend, XGBoost, Prophet, SARIMA
+2. Trains 5 models: Linear Trend, XGBoost, Random Forest, Prophet, SARIMA
 3. Uses Optuna for hyperparameter optimization
 4. Tracks experiments with MLflow
 5. Saves results to SQLite database
-6. Stores feature importance for XGBoost
+6. Stores feature importance for XGBoost and Random Forest
+7. Generates learning curves for XGBoost and Random Forest
 
 Models:
 - Linear Trend: Simple but captures the upward trend
-- XGBoost: Gradient boosting with lag features
+- XGBoost: Gradient boosting with lag features (with learning curves)
+- Random Forest: Ensemble of decision trees (with learning curves)
 - Prophet: Facebook's forecasting (trend + seasonality)
 - SARIMA: Statistical time series model
 
@@ -61,7 +63,7 @@ def parse_args():
         '--models', '-m',
         type=str,
         nargs='+',
-        default=['linear_trend', 'xgboost', 'prophet', 'sarima'],
+        default=['linear_trend', 'xgboost', 'random_forest', 'prophet', 'sarima'],
         help='Models to train (default: all)'
     )
     parser.add_argument(
@@ -174,7 +176,8 @@ def _run_training(args, terminal_logger):
     print("  - models/training_results.json")
     print("  - database/results.db (SQLite)")
     print("  - mlruns/ (MLflow)")
-    print("  - models/feature_importance/ (XGBoost)")
+    print("  - models/feature_importance/ (XGBoost, Random Forest)")
+    print("  - models/learning_curves/ (XGBoost, Random Forest)")
     print("\nNext steps:")
     print("1. View MLflow UI:        mlflow ui --port 5000")
     print("2. View Optuna Dashboard: optuna-dashboard sqlite:///models/optuna/optuna_studies.db --port 8080")

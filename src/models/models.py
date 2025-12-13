@@ -4,8 +4,9 @@ Simple Time Series Models for Sales Forecasting.
 Models:
 1. LinearTrendModel - Captures overall trend
 2. ProphetModel - Facebook's forecasting (trend + seasonality)
-3. XGBoostModel - Gradient boosting with lag features
-4. SARIMAModel - Statistical time series model
+3. XGBoostModel - Gradient boosting with lag features (with learning curves)
+4. RandomForestModel - Ensemble of decision trees with lag features
+5. SARIMAModel - Statistical time series model
 
 All models follow a simple interface:
 - fit(df, target_col) -> trains the model
@@ -20,9 +21,11 @@ import warnings
 warnings.filterwarnings('ignore')
 
 from sklearn.linear_model import LinearRegression, Ridge
+from sklearn.ensemble import RandomForestRegressor
 from sklearn.preprocessing import StandardScaler
 from sklearn.metrics import mean_absolute_percentage_error, mean_squared_error
 import xgboost as xgb
+import matplotlib.pyplot as plt
 
 
 class BaseSimpleModel:
@@ -178,6 +181,7 @@ class XGBoostModel(BaseSimpleModel):
     - Day of week
     - Month
     - Trend (day number)
+    - Iteration-wise loss tracking for learning curves
     """
     
     def __init__(
@@ -187,7 +191,8 @@ class XGBoostModel(BaseSimpleModel):
         learning_rate: float = 0.1,
         min_child_weight: int = 1,
         subsample: float = 0.8,
-        colsample_bytree: float = 0.8
+        colsample_bytree: float = 0.8,
+        early_stopping_rounds: int = 20
     ):
         super().__init__('xgboost')
         self.params = {
@@ -200,10 +205,15 @@ class XGBoostModel(BaseSimpleModel):
             'random_state': 42,
             'n_jobs': -1
         }
+        self.early_stopping_rounds = early_stopping_rounds
         self.model = None
         self.feature_names = []
         self.lag_days = [1, 7, 14, 28]
         self.rolling_windows = [7, 14]
+        # Learning curve tracking
+        self.train_losses = []
+        self.val_losses = []
+        self.learning_curve_path = None
     
     def _create_features(self, df: pd.DataFrame, target_col: str) -> pd.DataFrame:
         """Create features for XGBoost."""
@@ -237,8 +247,16 @@ class XGBoostModel(BaseSimpleModel):
         features.extend(['day_of_week', 'month', 'day_of_year', 'day_num'])
         return features
     
-    def fit(self, df: pd.DataFrame, target_col: str = 'daily_sales') -> Dict[str, Any]:
-        """Fit XGBoost model."""
+    def fit(self, df: pd.DataFrame, target_col: str = 'daily_sales', 
+            val_df: pd.DataFrame = None) -> Dict[str, Any]:
+        """
+        Fit XGBoost model with iteration-wise loss tracking.
+        
+        Args:
+            df: Training data
+            target_col: Target column name
+            val_df: Optional validation data for learning curves
+        """
         self.training_data = df.copy()
         self.last_date = df['date'].max()
         self.target_col = target_col
@@ -250,17 +268,52 @@ class XGBoostModel(BaseSimpleModel):
         df_features = df_features.dropna()
         
         self.feature_names = self._get_feature_columns()
-        X = df_features[self.feature_names].values
-        y = df_features[target_col].values
+        X_train = df_features[self.feature_names].values
+        y_train = df_features[target_col].values
         
-        # Train model
-        self.model = xgb.XGBRegressor(**self.params)
-        self.model.fit(X, y)
+        # Prepare validation set if provided
+        eval_set = [(X_train, y_train)]
+        if val_df is not None and len(val_df) > 0:
+            val_features = self._create_features(val_df, target_col).dropna()
+            if len(val_features) > 0:
+                X_val = val_features[self.feature_names].values
+                y_val = val_features[target_col].values
+                eval_set.append((X_val, y_val))
+        else:
+            # Use last 20% of training data as validation for learning curves
+            split_idx = int(len(X_train) * 0.8)
+            X_val = X_train[split_idx:]
+            y_val = y_train[split_idx:]
+            eval_set = [(X_train[:split_idx], y_train[:split_idx]), (X_val, y_val)]
+        
+        # Train model with eval_set for tracking
+        self.model = xgb.XGBRegressor(
+            **self.params,
+            early_stopping_rounds=self.early_stopping_rounds
+        )
+        
+        self.model.fit(
+            X_train, y_train,
+            eval_set=eval_set,
+            verbose=False
+        )
+        
+        # Extract learning curves from eval results
+        self.train_losses = []
+        self.val_losses = []
+        
+        if hasattr(self.model, 'evals_result'):
+            evals_result = self.model.evals_result()
+            if evals_result:
+                if 'validation_0' in evals_result:
+                    self.train_losses = evals_result['validation_0']['rmse']
+                if 'validation_1' in evals_result:
+                    self.val_losses = evals_result['validation_1']['rmse']
         
         # Training metrics
-        y_pred = self.model.predict(X)
-        mape = mean_absolute_percentage_error(y, y_pred) * 100
-        rmse = np.sqrt(mean_squared_error(y, y_pred))
+        y_pred = self.model.predict(X_train)
+        mape = mean_absolute_percentage_error(y_train, y_pred) * 100
+        rmse = np.sqrt(mean_squared_error(y_train, y_pred))
         
         self.is_fitted = True
         self.n_train = len(df)
@@ -272,7 +325,86 @@ class XGBoostModel(BaseSimpleModel):
             'train_mape': mape,
             'train_rmse': rmse,
             'n_samples': len(df_features),
-            'n_features': len(self.feature_names)
+            'n_features': len(self.feature_names),
+            'n_iterations': len(self.train_losses),
+            'best_iteration': self.model.best_iteration if hasattr(self.model, 'best_iteration') else None
+        }
+    
+    def plot_learning_curve(self, save_path: str = None) -> str:
+        """
+        Plot and save the learning curve showing train vs validation loss.
+        
+        Args:
+            save_path: Path to save the plot
+            
+        Returns:
+            Path to saved plot
+        """
+        if not self.train_losses:
+            print("No learning curve data available")
+            return None
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
+        
+        iterations = range(1, len(self.train_losses) + 1)
+        ax.plot(iterations, self.train_losses, label='Train RMSE', color='blue', linewidth=2)
+        
+        if self.val_losses:
+            ax.plot(iterations, self.val_losses, label='Validation RMSE', color='red', linewidth=2)
+            
+            # Mark best iteration
+            if hasattr(self.model, 'best_iteration') and self.model.best_iteration:
+                best_iter = self.model.best_iteration
+                ax.axvline(x=best_iter, color='green', linestyle='--', 
+                          label=f'Best Iteration ({best_iter})')
+        
+        ax.set_xlabel('Boosting Round (Iteration)', fontsize=12)
+        ax.set_ylabel('RMSE Loss', fontsize=12)
+        ax.set_title('XGBoost Learning Curve - Train vs Validation Loss', fontsize=14)
+        ax.legend(loc='upper right', fontsize=10)
+        ax.grid(True, alpha=0.3)
+        
+        # Add overfitting/underfitting analysis
+        if self.train_losses and self.val_losses:
+            final_train = self.train_losses[-1]
+            final_val = self.val_losses[-1]
+            gap = final_val - final_train
+            
+            if gap > final_train * 0.3:
+                status = "OVERFITTING (large gap)"
+                color = 'red'
+            elif final_train > 1000:
+                status = "UNDERFITTING (high train loss)"
+                color = 'orange'
+            else:
+                status = "GOOD FIT"
+                color = 'green'
+            
+            ax.text(0.02, 0.98, f"Status: {status}\nTrain RMSE: {final_train:.2f}\nVal RMSE: {final_val:.2f}",
+                   transform=ax.transAxes, fontsize=10, verticalalignment='top',
+                   bbox=dict(boxstyle='round', facecolor=color, alpha=0.2))
+        
+        plt.tight_layout()
+        
+        # Save plot
+        if save_path is None:
+            save_path = "models/learning_curves/xgboost_learning_curve.png"
+        
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        self.learning_curve_path = save_path
+        print(f"  Learning curve saved to: {save_path}")
+        
+        return save_path
+    
+    def get_learning_curve_data(self) -> Dict[str, List[float]]:
+        """Get learning curve data for database storage."""
+        return {
+            'train_losses': self.train_losses,
+            'val_losses': self.val_losses,
+            'best_iteration': self.model.best_iteration if hasattr(self.model, 'best_iteration') else None
         }
     
     def predict(self, n_days: int) -> pd.DataFrame:
@@ -604,10 +736,333 @@ class SARIMAModel(BaseSimpleModel):
         }
 
 
+class RandomForestModel(BaseSimpleModel):
+    """
+    Random Forest model with lag features for time series.
+    
+    Features:
+    - Lag features (1, 7, 14, 28 days)
+    - Rolling mean (7, 14 days)
+    - Day of week
+    - Month
+    - Trend (day number)
+    - Out-of-bag (OOB) error tracking for overfitting detection
+    """
+    
+    def __init__(
+        self,
+        n_estimators: int = 100,
+        max_depth: int = 10,
+        min_samples_split: int = 5,
+        min_samples_leaf: int = 2,
+        max_features: str = 'sqrt',
+        bootstrap: bool = True
+    ):
+        super().__init__('random_forest')
+        self.params = {
+            'n_estimators': n_estimators,
+            'max_depth': max_depth,
+            'min_samples_split': min_samples_split,
+            'min_samples_leaf': min_samples_leaf,
+            'max_features': max_features,
+            'bootstrap': bootstrap,
+            'oob_score': bootstrap,  # Enable OOB score for overfitting detection
+            'random_state': 42,
+            'n_jobs': -1
+        }
+        self.model = None
+        self.feature_names = []
+        self.lag_days = [1, 7, 14, 28]
+        self.rolling_windows = [7, 14]
+        # Learning curve tracking
+        self.train_scores = []
+        self.oob_scores = []
+        self.learning_curve_path = None
+    
+    def _create_features(self, df: pd.DataFrame, target_col: str) -> pd.DataFrame:
+        """Create features for Random Forest."""
+        df = df.copy()
+        
+        # Lag features
+        for lag in self.lag_days:
+            df[f'lag_{lag}'] = df[target_col].shift(lag)
+        
+        # Rolling features
+        for window in self.rolling_windows:
+            df[f'rolling_mean_{window}'] = df[target_col].shift(1).rolling(window).mean()
+            df[f'rolling_std_{window}'] = df[target_col].shift(1).rolling(window).std()
+        
+        # Date features
+        df['day_of_week'] = df['date'].dt.dayofweek
+        df['month'] = df['date'].dt.month
+        df['day_of_year'] = df['date'].dt.dayofyear
+        
+        # Trend
+        df['day_num'] = range(len(df))
+        
+        return df
+    
+    def _get_feature_columns(self) -> List[str]:
+        """Get list of feature column names."""
+        features = []
+        features.extend([f'lag_{lag}' for lag in self.lag_days])
+        features.extend([f'rolling_mean_{w}' for w in self.rolling_windows])
+        features.extend([f'rolling_std_{w}' for w in self.rolling_windows])
+        features.extend(['day_of_week', 'month', 'day_of_year', 'day_num'])
+        return features
+    
+    def fit(self, df: pd.DataFrame, target_col: str = 'daily_sales',
+            val_df: pd.DataFrame = None) -> Dict[str, Any]:
+        """
+        Fit Random Forest model with incremental tree tracking.
+        
+        Args:
+            df: Training data
+            target_col: Target column name
+            val_df: Optional validation data for learning curves
+        """
+        self.training_data = df.copy()
+        self.last_date = df['date'].max()
+        self.target_col = target_col
+        
+        # Create features
+        df_features = self._create_features(df, target_col)
+        
+        # Drop NaN rows (from lag features)
+        df_features = df_features.dropna()
+        
+        self.feature_names = self._get_feature_columns()
+        X_train = df_features[self.feature_names].values
+        y_train = df_features[target_col].values
+        
+        # Prepare validation set
+        X_val, y_val = None, None
+        if val_df is not None and len(val_df) > 0:
+            val_features = self._create_features(val_df, target_col).dropna()
+            if len(val_features) > 0:
+                X_val = val_features[self.feature_names].values
+                y_val = val_features[target_col].values
+        else:
+            # Use last 20% of training data as validation
+            split_idx = int(len(X_train) * 0.8)
+            X_val = X_train[split_idx:]
+            y_val = y_train[split_idx:]
+            X_train = X_train[:split_idx]
+            y_train = y_train[:split_idx]
+        
+        # Track learning curves by training incrementally
+        self.train_scores = []
+        self.oob_scores = []
+        
+        n_trees_steps = [10, 25, 50, 75, 100, 150, 200]
+        n_trees_steps = [n for n in n_trees_steps if n <= self.params['n_estimators']]
+        if self.params['n_estimators'] not in n_trees_steps:
+            n_trees_steps.append(self.params['n_estimators'])
+        
+        for n_trees in n_trees_steps:
+            params = self.params.copy()
+            params['n_estimators'] = n_trees
+            
+            model = RandomForestRegressor(**params)
+            model.fit(X_train, y_train)
+            
+            # Train score
+            y_pred_train = model.predict(X_train)
+            train_rmse = np.sqrt(mean_squared_error(y_train, y_pred_train))
+            self.train_scores.append({'n_trees': n_trees, 'rmse': train_rmse})
+            
+            # Validation/OOB score
+            if X_val is not None:
+                y_pred_val = model.predict(X_val)
+                val_rmse = np.sqrt(mean_squared_error(y_val, y_pred_val))
+                self.oob_scores.append({'n_trees': n_trees, 'rmse': val_rmse})
+            elif hasattr(model, 'oob_score_') and model.oob_score_:
+                # Use OOB score as validation proxy
+                oob_rmse = np.sqrt(1 - model.oob_score_) * np.std(y_train)
+                self.oob_scores.append({'n_trees': n_trees, 'rmse': oob_rmse})
+        
+        # Train final model with all estimators
+        self.model = RandomForestRegressor(**self.params)
+        
+        # Combine train and val back for final training
+        if val_df is None:
+            df_features_full = self._create_features(df, target_col).dropna()
+            X_full = df_features_full[self.feature_names].values
+            y_full = df_features_full[target_col].values
+            self.model.fit(X_full, y_full)
+        else:
+            self.model.fit(X_train, y_train)
+        
+        # Training metrics on full data
+        df_features_full = self._create_features(df, target_col).dropna()
+        X_full = df_features_full[self.feature_names].values
+        y_full = df_features_full[target_col].values
+        
+        y_pred = self.model.predict(X_full)
+        mape = mean_absolute_percentage_error(y_full, y_pred) * 100
+        rmse = np.sqrt(mean_squared_error(y_full, y_pred))
+        
+        self.is_fitted = True
+        self.n_train = len(df)
+        
+        # Store recent data for prediction
+        self.recent_data = df.tail(max(self.lag_days) + max(self.rolling_windows)).copy()
+        
+        return {
+            'train_mape': mape,
+            'train_rmse': rmse,
+            'n_samples': len(df_features_full),
+            'n_features': len(self.feature_names),
+            'oob_score': self.model.oob_score_ if hasattr(self.model, 'oob_score_') and self.model.oob_score_ else None
+        }
+    
+    def predict(self, n_days: int) -> pd.DataFrame:
+        """Predict n_days ahead using recursive forecasting."""
+        if not self.is_fitted:
+            raise ValueError("Model not fitted")
+        
+        # Start with recent historical data
+        history = self.recent_data.copy()
+        predictions = []
+        
+        for i in range(n_days):
+            # Generate next date
+            next_date = self.last_date + pd.Timedelta(days=i+1)
+            
+            # Create a temporary dataframe with history + placeholder for prediction
+            temp_df = history.copy()
+            new_row = pd.DataFrame({
+                'date': [next_date],
+                self.target_col: [np.nan]
+            })
+            temp_df = pd.concat([temp_df, new_row], ignore_index=True)
+            
+            # Create features
+            temp_features = self._create_features(temp_df, self.target_col)
+            
+            # Get features for the last row (the one we want to predict)
+            X_pred = temp_features[self.feature_names].iloc[-1:].values
+            
+            # Predict
+            pred = self.model.predict(X_pred)[0]
+            pred = max(pred, 0)  # No negative sales
+            
+            predictions.append({
+                'date': next_date,
+                'predicted_sales': pred
+            })
+            
+            # Update history with prediction
+            new_row = pd.DataFrame({
+                'date': [next_date],
+                self.target_col: [pred]
+            })
+            history = pd.concat([history, new_row], ignore_index=True)
+            history = history.tail(max(self.lag_days) + max(self.rolling_windows) + 1)
+        
+        return pd.DataFrame(predictions)
+    
+    def get_feature_importance(self) -> Dict[str, float]:
+        """Get feature importance."""
+        if not self.is_fitted:
+            return {}
+        importance = self.model.feature_importances_
+        return dict(zip(self.feature_names, importance))
+    
+    def plot_learning_curve(self, save_path: str = None) -> str:
+        """
+        Plot and save the learning curve showing train vs validation loss.
+        
+        Args:
+            save_path: Path to save the plot
+            
+        Returns:
+            Path to saved plot
+        """
+        if not self.train_scores:
+            print("No learning curve data available")
+            return None
+        
+        fig, ax = plt.subplots(figsize=(10, 6))
+        
+        n_trees = [s['n_trees'] for s in self.train_scores]
+        train_rmse = [s['rmse'] for s in self.train_scores]
+        
+        ax.plot(n_trees, train_rmse, label='Train RMSE', color='blue', linewidth=2, marker='o')
+        
+        if self.oob_scores:
+            val_rmse = [s['rmse'] for s in self.oob_scores]
+            ax.plot(n_trees, val_rmse, label='Validation RMSE', color='red', linewidth=2, marker='s')
+        
+        ax.set_xlabel('Number of Trees', fontsize=12)
+        ax.set_ylabel('RMSE Loss', fontsize=12)
+        ax.set_title('Random Forest Learning Curve - Train vs Validation Loss', fontsize=14)
+        ax.legend(loc='upper right', fontsize=10)
+        ax.grid(True, alpha=0.3)
+        
+        # Add overfitting/underfitting analysis
+        if self.train_scores and self.oob_scores:
+            final_train = self.train_scores[-1]['rmse']
+            final_val = self.oob_scores[-1]['rmse']
+            gap = final_val - final_train
+            
+            if gap > final_train * 0.3:
+                status = "OVERFITTING (large gap)"
+                color = 'red'
+            elif final_train > 1000:
+                status = "UNDERFITTING (high train loss)"
+                color = 'orange'
+            else:
+                status = "GOOD FIT"
+                color = 'green'
+            
+            ax.text(0.02, 0.98, f"Status: {status}\nTrain RMSE: {final_train:.2f}\nVal RMSE: {final_val:.2f}",
+                   transform=ax.transAxes, fontsize=10, verticalalignment='top',
+                   bbox=dict(boxstyle='round', facecolor=color, alpha=0.2))
+        
+        plt.tight_layout()
+        
+        # Save plot
+        if save_path is None:
+            save_path = "models/learning_curves/random_forest_learning_curve.png"
+        
+        Path(save_path).parent.mkdir(parents=True, exist_ok=True)
+        plt.savefig(save_path, dpi=150, bbox_inches='tight')
+        plt.close()
+        
+        self.learning_curve_path = save_path
+        print(f"  Learning curve saved to: {save_path}")
+        
+        return save_path
+    
+    def get_learning_curve_data(self) -> Dict[str, Any]:
+        """Get learning curve data for database storage."""
+        return {
+            'train_scores': self.train_scores,
+            'oob_scores': self.oob_scores,
+            'oob_score': self.model.oob_score_ if hasattr(self.model, 'oob_score_') and self.model.oob_score_ else None
+        }
+    
+    def get_hyperparameters(self) -> Dict[str, Any]:
+        return self.params.copy()
+    
+    @staticmethod
+    def get_optuna_params(trial) -> Dict[str, Any]:
+        return {
+            'n_estimators': trial.suggest_int('rf_n_estimators', 50, 300),
+            'max_depth': trial.suggest_int('rf_max_depth', 5, 20),
+            'min_samples_split': trial.suggest_int('rf_min_samples_split', 2, 20),
+            'min_samples_leaf': trial.suggest_int('rf_min_samples_leaf', 1, 10),
+            'max_features': trial.suggest_categorical('rf_max_features', ['sqrt', 'log2', None]),
+            'bootstrap': True  # Always True for OOB score
+        }
+
+
 # Model registry for easy access
 MODEL_REGISTRY = {
     'linear_trend': LinearTrendModel,
     'xgboost': XGBoostModel,
+    'random_forest': RandomForestModel,
     'prophet': ProphetModel,
     'sarima': SARIMAModel
 }

@@ -2,16 +2,36 @@
 Step 4: Sales Forecasting
 
 This script generates forecasts for N days using trained models.
-Results are saved to both CSV and SQLite database.
+Results are saved to SQLite database (primary storage).
+CSV files can be optionally generated with --save-csv flag.
 
 Usage:
     python step_4_forecast.py --days 30
     python step_4_forecast.py --days 60 --model prophet
     python step_4_forecast.py --days 30 --model all
+    python step_4_forecast.py --days 30 --save-csv  # Also save to CSV
 
 Arguments:
     --days: Number of days to forecast (required)
-    --model: Model to use (linear_trend, xgboost, prophet, sarima, all, ensemble)
+    --model: Model to use (linear_trend, xgboost, random_forest, prophet, sarima, all, ensemble)
+    --save-csv: Also save results to CSV files
+    --no-database: Skip saving to database
+
+Retrieving Forecasts from Database:
+    from src.data.database import get_database
+    db = get_database()
+    
+    # Get all forecasts for latest run
+    df = db.get_forecasts()
+    
+    # Get comparison view (all models side by side)
+    comparison = db.get_forecast_comparison()
+    
+    # Get summary statistics
+    summary = db.get_forecast_summary()
+    
+    # List all forecast IDs
+    forecast_ids = db.list_forecast_ids()
 """
 import sys
 import argparse
@@ -44,7 +64,7 @@ def parse_args():
         '--model', '-m',
         type=str,
         default='all',
-        choices=['linear_trend', 'xgboost', 'prophet', 'sarima', 'all', 'ensemble'],
+        choices=['linear_trend', 'xgboost', 'random_forest', 'prophet', 'sarima', 'all', 'ensemble'],
         help='Model to use (default: all)'
     )
     parser.add_argument(
@@ -57,6 +77,11 @@ def parse_args():
         '--no-database',
         action='store_true',
         help='Skip saving to database'
+    )
+    parser.add_argument(
+        '--save-csv',
+        action='store_true',
+        help='Also save results to CSV files (default: database only)'
     )
     return parser.parse_args()
 
@@ -147,31 +172,12 @@ def _run_forecasting(args, terminal_logger):
     # Print summary
     print_forecast_summary(forecasts, args.days)
     
-    # Save results to CSV
-    output_path = Path(args.output)
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    
-    # Combine all forecasts
-    all_results = []
-    for model_name, df in forecasts.items():
-        df_copy = df.copy()
-        df_copy['model'] = model_name
-        all_results.append(df_copy)
-    
-    combined_df = pd.concat(all_results, ignore_index=True)
-    combined_df.to_csv(output_path, index=False)
-    
     print(f"\n{'='*70}")
-    print(f"Forecasts saved to: {output_path}")
+    print("SAVING RESULTS")
+    print("="*70)
     
-    # Save comparison view
-    if len(forecasts) > 1:
-        comparison = forecaster.compare_forecasts(args.days)
-        comparison_path = output_path.parent / "forecast_comparison.csv"
-        comparison.to_csv(comparison_path, index=False)
-        print(f"Comparison saved to: {comparison_path}")
-    
-    # Save to database
+    # Save to database (primary storage)
+    forecast_id = None
     if not args.no_database:
         db = get_database()
         forecast_id = datetime.now().strftime('%Y%m%d_%H%M%S')
@@ -179,9 +185,40 @@ def _run_forecasting(args, terminal_logger):
         for model_name, df in forecasts.items():
             db.save_forecast(forecast_id, model_name, df)
         
-        print(f"Forecasts saved to database: database/results.db")
+        print(f"Database: database/results.db (forecast_id: {forecast_id})")
+        
+        # Show how to retrieve from database
+        print(f"\nTo retrieve forecasts from database:")
+        print(f"  from src.data.database import get_database")
+        print(f"  db = get_database()")
+        print(f"  df = db.get_forecasts(forecast_id='{forecast_id}')")
+        print(f"  comparison = db.get_forecast_comparison(forecast_id='{forecast_id}')")
+        print(f"  summary = db.get_forecast_summary(forecast_id='{forecast_id}')")
     
-    print(f"{'='*70}")
+    # Optionally save to CSV
+    if args.save_csv:
+        output_path = Path(args.output)
+        output_path.parent.mkdir(parents=True, exist_ok=True)
+        
+        # Combine all forecasts
+        all_results = []
+        for model_name, df in forecasts.items():
+            df_copy = df.copy()
+            df_copy['model'] = model_name
+            all_results.append(df_copy)
+        
+        combined_df = pd.concat(all_results, ignore_index=True)
+        combined_df.to_csv(output_path, index=False)
+        print(f"\nCSV: {output_path}")
+        
+        # Save comparison view
+        if len(forecasts) > 1:
+            comparison = forecaster.compare_forecasts(args.days)
+            comparison_path = output_path.parent / "forecast_comparison.csv"
+            comparison.to_csv(comparison_path, index=False)
+            print(f"CSV Comparison: {comparison_path}")
+    
+    print(f"\n{'='*70}")
     
     return 0
 
