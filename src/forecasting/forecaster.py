@@ -25,6 +25,19 @@ class Forecaster:
     def __init__(self):
         """Initialize forecaster."""
         self.models: Dict[str, BaseSimpleModel] = {}
+        self.last_data_date: Optional[pd.Timestamp] = None
+    
+    def set_last_data_date(self, date: pd.Timestamp) -> None:
+        """
+        Set the last date in the actual data.
+        
+        This is used to ensure forecasts start from the correct date,
+        even if models were trained on older data.
+        
+        Args:
+            date: The last date in the current dataset
+        """
+        self.last_data_date = pd.to_datetime(date)
     
     def load_model(self, model_name: str, path: str) -> None:
         """Load a trained model from file."""
@@ -41,6 +54,16 @@ class Forecaster:
             model_path = models_dir / f"{model_name}.pkl"
             if model_path.exists():
                 self.load_model(model_name, str(model_path))
+    
+    def _update_model_last_date(self, model: BaseSimpleModel) -> None:
+        """
+        Update model's last_date if we have a more recent data date.
+        
+        This ensures forecasts start from the actual last data point,
+        not from when the model was trained.
+        """
+        if self.last_data_date is not None:
+            model.last_date = self.last_data_date
     
     def forecast(
         self,
@@ -61,6 +84,10 @@ class Forecaster:
             raise ValueError(f"Model {model_name} not loaded")
         
         model = self.models[model_name]
+        
+        # Update model's last_date to match current data
+        self._update_model_last_date(model)
+        
         predictions = model.predict(n_days)
         
         return predictions
@@ -149,4 +176,3 @@ class Forecaster:
             result[model_name] = forecast_df['predicted_sales'].values
         
         return result
-

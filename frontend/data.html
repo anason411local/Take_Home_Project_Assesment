@@ -1,0 +1,605 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sales Forecasting Dashboard | Data View</title>
+    
+    <!-- Bootstrap 5 CSS -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/css/bootstrap.min.css" rel="stylesheet">
+    <!-- Bootstrap Icons -->
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css" rel="stylesheet">
+    <!-- Google Fonts - Outfit -->
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <!-- Plotly.js -->
+    <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+    <!-- Custom CSS -->
+    <link href="/app/css/styles.css" rel="stylesheet">
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar navbar-expand-lg fixed-top">
+        <div class="container-fluid">
+            <a class="navbar-brand" href="/app/index.html">
+                <i class="bi bi-graph-up-arrow me-2"></i>
+                Sales Forecaster
+            </a>
+            <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#navbarNav">
+                <span class="navbar-toggler-icon"></span>
+            </button>
+            <div class="collapse navbar-collapse" id="navbarNav">
+                <ul class="navbar-nav me-auto">
+                    <li class="nav-item">
+                        <a class="nav-link" href="/app/index.html">
+                            <i class="bi bi-speedometer2 me-1"></i> Overview
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link" href="/app/forecast.html">
+                            <i class="bi bi-lightning me-1"></i> Forecast
+                        </a>
+                    </li>
+                    <li class="nav-item">
+                        <a class="nav-link active" href="/app/data.html">
+                            <i class="bi bi-database me-1"></i> Data View
+                        </a>
+                    </li>
+                </ul>
+                <div class="d-flex align-items-center">
+                    <span class="badge bg-success me-2" id="connectionStatus">
+                        <i class="bi bi-circle-fill me-1"></i> Connected
+                    </span>
+                    <span class="text-light small" id="sessionInfo"></span>
+                </div>
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <div class="container-fluid">
+            <!-- Page Header -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="page-header">
+                        <h1 class="page-title">
+                            <i class="bi bi-database me-2"></i>Data View
+                        </h1>
+                        <p class="page-subtitle">
+                            Explore historical data, model metrics, and feature importance
+                        </p>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tabs Navigation -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <ul class="nav nav-tabs nav-tabs-custom" id="dataViewTabs" role="tablist">
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link active" id="historical-tab" data-bs-toggle="tab" 
+                                    data-bs-target="#historical" type="button" role="tab">
+                                <i class="bi bi-table me-2"></i>Historical Data
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="metrics-tab" data-bs-toggle="tab" 
+                                    data-bs-target="#metrics" type="button" role="tab">
+                                <i class="bi bi-speedometer me-2"></i>Model Metrics
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="features-tab" data-bs-toggle="tab" 
+                                    data-bs-target="#features" type="button" role="tab">
+                                <i class="bi bi-bar-chart-steps me-2"></i>Feature Importance
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link" id="upload-tab" data-bs-toggle="tab" 
+                                    data-bs-target="#upload" type="button" role="tab">
+                                <i class="bi bi-cloud-upload me-2"></i>Upload Data
+                            </button>
+                        </li>
+                    </ul>
+                </div>
+            </div>
+
+            <!-- Tab Content -->
+            <div class="tab-content" id="dataViewTabContent">
+                <!-- Historical Data Tab -->
+                <div class="tab-pane fade show active" id="historical" role="tabpanel">
+                    <div class="row">
+                        <!-- Data Table -->
+                        <div class="col-12 mb-4">
+                            <div class="chart-card">
+                                <div class="chart-header">
+                                    <h5 class="chart-title">
+                                        <i class="bi bi-table me-2"></i>Historical Sales Data
+                                    </h5>
+                                    <div class="chart-actions d-flex gap-2">
+                                        <input type="text" class="form-control form-control-sm" 
+                                               id="dataSearch" placeholder="Search..." style="width: 200px;">
+                                        <select class="form-select form-select-sm" id="dataLimit" style="width: 120px;">
+                                            <option value="50">50 rows</option>
+                                            <option value="100" selected>100 rows</option>
+                                            <option value="200">200 rows</option>
+                                            <option value="all">All rows</option>
+                                        </select>
+                                        <button class="btn btn-sm btn-outline-primary" id="exportDataBtn">
+                                            <i class="bi bi-download me-1"></i>Export
+                                        </button>
+                                    </div>
+                                </div>
+                                <div class="chart-body p-0">
+                                    <div class="table-responsive" style="max-height: 500px;">
+                                        <table class="table table-hover table-striped mb-0" id="historicalTable">
+                                            <thead class="table-dark sticky-top">
+                                                <tr>
+                                                    <th>#</th>
+                                                    <th>Date</th>
+                                                    <th>Daily Sales ($)</th>
+                                                    <th>Marketing Spend ($)</th>
+                                                    <th>Holiday</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="historicalBody">
+                                                <tr>
+                                                    <td colspan="5" class="text-center py-4">
+                                                        <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+                                                        Loading data...
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                                <div class="chart-footer">
+                                    <div class="d-flex justify-content-between align-items-center">
+                                        <span class="text-muted small" id="dataInfo">Showing 0 of 0 records</span>
+                                        <nav>
+                                            <ul class="pagination pagination-sm mb-0" id="dataPagination">
+                                            </ul>
+                                        </nav>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Data Summary -->
+                        <div class="col-md-6 mb-4">
+                            <div class="chart-card">
+                                <div class="chart-header">
+                                    <h5 class="chart-title">
+                                        <i class="bi bi-bar-chart me-2"></i>Sales Distribution
+                                    </h5>
+                                </div>
+                                <div class="chart-body">
+                                    <div id="distributionChart" class="chart-container">
+                                        <div class="chart-loading">
+                                            <div class="spinner-border text-primary" role="status"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <div class="col-md-6 mb-4">
+                            <div class="chart-card">
+                                <div class="chart-header">
+                                    <h5 class="chart-title">
+                                        <i class="bi bi-calendar3 me-2"></i>Monthly Trends
+                                    </h5>
+                                </div>
+                                <div class="chart-body">
+                                    <div id="monthlyChart" class="chart-container">
+                                        <div class="chart-loading">
+                                            <div class="spinner-border text-primary" role="status"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Model Metrics Tab -->
+                <div class="tab-pane fade" id="metrics" role="tabpanel">
+                    <div class="row">
+                        <!-- Metrics Comparison Chart -->
+                        <div class="col-lg-8 mb-4">
+                            <div class="chart-card">
+                                <div class="chart-header">
+                                    <h5 class="chart-title">
+                                        <i class="bi bi-bar-chart me-2"></i>Model Comparison (Test MAPE)
+                                    </h5>
+                                </div>
+                                <div class="chart-body">
+                                    <div id="metricsComparisonChart" class="chart-container">
+                                        <div class="chart-loading">
+                                            <div class="spinner-border text-primary" role="status"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Best Model Card -->
+                        <div class="col-lg-4 mb-4">
+                            <div class="chart-card h-100">
+                                <div class="chart-header">
+                                    <h5 class="chart-title">
+                                        <i class="bi bi-trophy me-2"></i>Best Model
+                                    </h5>
+                                </div>
+                                <div class="chart-body p-4">
+                                    <div class="best-model-card" id="bestModelCard">
+                                        <div class="text-center mb-3">
+                                            <i class="bi bi-trophy-fill text-warning" style="font-size: 3rem;"></i>
+                                        </div>
+                                        <h3 class="text-center mb-3" id="bestModelName">Loading...</h3>
+                                        <div class="metric-highlight">
+                                            <span class="metric-label">Test MAPE</span>
+                                            <span class="metric-value text-success" id="bestModelMape">--</span>
+                                        </div>
+                                        <div class="metric-highlight">
+                                            <span class="metric-label">Test MAE</span>
+                                            <span class="metric-value" id="bestModelMae">--</span>
+                                        </div>
+                                        <div class="metric-highlight">
+                                            <span class="metric-label">Test RMSE</span>
+                                            <span class="metric-value" id="bestModelRmse">--</span>
+                                        </div>
+                                        <div class="mt-3 text-center">
+                                            <span class="badge bg-success" id="targetBadge">Target Met!</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Detailed Metrics Table -->
+                        <div class="col-12 mb-4">
+                            <div class="chart-card">
+                                <div class="chart-header">
+                                    <h5 class="chart-title">
+                                        <i class="bi bi-table me-2"></i>Detailed Model Metrics
+                                    </h5>
+                                </div>
+                                <div class="chart-body p-0">
+                                    <div class="table-responsive">
+                                        <table class="table table-hover mb-0" id="metricsTable">
+                                            <thead class="table-dark">
+                                                <tr>
+                                                    <th>Model</th>
+                                                    <th>Test MAPE (%)</th>
+                                                    <th>Test MAE ($)</th>
+                                                    <th>Test RMSE ($)</th>
+                                                    <th>Train MAPE (%)</th>
+                                                    <th>Training Time (s)</th>
+                                                    <th>Status</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="metricsBody">
+                                                <tr>
+                                                    <td colspan="7" class="text-center py-4">
+                                                        <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+                                                        Loading metrics...
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Metrics Explanation -->
+                        <div class="col-12">
+                            <div class="chart-card">
+                                <div class="chart-header">
+                                    <h5 class="chart-title">
+                                        <i class="bi bi-info-circle me-2"></i>Understanding the Metrics
+                                    </h5>
+                                </div>
+                                <div class="chart-body p-4">
+                                    <div class="row">
+                                        <div class="col-md-4 mb-3">
+                                            <div class="metric-explanation">
+                                                <h6><span class="badge bg-primary me-2">MAPE</span>Mean Absolute Percentage Error</h6>
+                                                <p class="text-muted small mb-0">
+                                                    Measures average prediction error as a percentage. Lower is better. 
+                                                    Target: &lt;20%
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <div class="metric-explanation">
+                                                <h6><span class="badge bg-success me-2">MAE</span>Mean Absolute Error</h6>
+                                                <p class="text-muted small mb-0">
+                                                    Average absolute difference between predicted and actual values in dollars. 
+                                                    Lower is better.
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-4 mb-3">
+                                            <div class="metric-explanation">
+                                                <h6><span class="badge bg-warning text-dark me-2">RMSE</span>Root Mean Square Error</h6>
+                                                <p class="text-muted small mb-0">
+                                                    Similar to MAE but penalizes larger errors more. Useful for detecting 
+                                                    outlier predictions.
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Feature Importance Tab -->
+                <div class="tab-pane fade" id="features" role="tabpanel">
+                    <div class="row">
+                        <!-- Model Selector -->
+                        <div class="col-12 mb-4">
+                            <div class="chart-card">
+                                <div class="chart-header">
+                                    <h5 class="chart-title">
+                                        <i class="bi bi-cpu me-2"></i>Select Model
+                                    </h5>
+                                </div>
+                                <div class="chart-body p-3">
+                                    <div class="btn-group" role="group" id="featureModelSelector">
+                                        <input type="radio" class="btn-check" name="featureModel" id="featureXgboost" value="xgboost" checked>
+                                        <label class="btn btn-outline-primary" for="featureXgboost">XGBoost</label>
+                                        
+                                        <input type="radio" class="btn-check" name="featureModel" id="featureRf" value="random_forest">
+                                        <label class="btn btn-outline-primary" for="featureRf">Random Forest</label>
+                                    </div>
+                                    <p class="text-muted small mt-2 mb-0">
+                                        Feature importance is available for tree-based models (XGBoost, Random Forest)
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Feature Importance Chart -->
+                        <div class="col-lg-8 mb-4">
+                            <div class="chart-card">
+                                <div class="chart-header">
+                                    <h5 class="chart-title">
+                                        <i class="bi bi-bar-chart-steps me-2"></i>Feature Importance
+                                    </h5>
+                                </div>
+                                <div class="chart-body">
+                                    <div id="featureImportanceChart" class="chart-container-large">
+                                        <div class="chart-loading">
+                                            <div class="spinner-border text-primary" role="status"></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Feature Table -->
+                        <div class="col-lg-4 mb-4">
+                            <div class="chart-card h-100">
+                                <div class="chart-header">
+                                    <h5 class="chart-title">
+                                        <i class="bi bi-list-ol me-2"></i>Feature Rankings
+                                    </h5>
+                                </div>
+                                <div class="chart-body p-0">
+                                    <div class="table-responsive" style="max-height: 400px;">
+                                        <table class="table table-hover table-sm mb-0" id="featureTable">
+                                            <thead class="table-dark sticky-top">
+                                                <tr>
+                                                    <th>Rank</th>
+                                                    <th>Feature</th>
+                                                    <th>Importance</th>
+                                                </tr>
+                                            </thead>
+                                            <tbody id="featureBody">
+                                                <tr>
+                                                    <td colspan="3" class="text-center py-4">
+                                                        <div class="spinner-border spinner-border-sm text-primary me-2"></div>
+                                                        Loading...
+                                                    </td>
+                                                </tr>
+                                            </tbody>
+                                        </table>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Feature Explanation -->
+                        <div class="col-12">
+                            <div class="chart-card">
+                                <div class="chart-header">
+                                    <h5 class="chart-title">
+                                        <i class="bi bi-lightbulb me-2"></i>Feature Descriptions
+                                    </h5>
+                                </div>
+                                <div class="chart-body p-4">
+                                    <div class="row">
+                                        <div class="col-md-3 mb-3">
+                                            <div class="feature-desc">
+                                                <h6><code>lag_1, lag_7</code></h6>
+                                                <p class="text-muted small mb-0">Previous day and week sales values</p>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <div class="feature-desc">
+                                                <h6><code>rolling_mean_7</code></h6>
+                                                <p class="text-muted small mb-0">7-day moving average of sales</p>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <div class="feature-desc">
+                                                <h6><code>day_of_week</code></h6>
+                                                <p class="text-muted small mb-0">Day of week (0=Monday, 6=Sunday)</p>
+                                            </div>
+                                        </div>
+                                        <div class="col-md-3 mb-3">
+                                            <div class="feature-desc">
+                                                <h6><code>trend</code></h6>
+                                                <p class="text-muted small mb-0">Linear time trend component</p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Upload Data Tab -->
+                <div class="tab-pane fade" id="upload" role="tabpanel">
+                    <div class="row justify-content-center">
+                        <div class="col-lg-8">
+                            <div class="chart-card">
+                                <div class="chart-header">
+                                    <h5 class="chart-title">
+                                        <i class="bi bi-cloud-upload me-2"></i>Upload New Data
+                                    </h5>
+                                </div>
+                                <div class="chart-body p-4">
+                                    <!-- Upload Form -->
+                                    <form id="uploadForm">
+                                        <div class="upload-area" id="uploadArea">
+                                            <i class="bi bi-cloud-arrow-up upload-icon"></i>
+                                            <h5>Drag & Drop CSV File</h5>
+                                            <p class="text-muted">or click to browse</p>
+                                            <input type="file" id="fileInput" accept=".csv" class="d-none">
+                                            <button type="button" class="btn btn-outline-primary" id="browseBtn">
+                                                <i class="bi bi-folder2-open me-2"></i>Browse Files
+                                            </button>
+                                        </div>
+                                        
+                                        <!-- Selected File Info -->
+                                        <div class="selected-file d-none" id="selectedFile">
+                                            <div class="d-flex align-items-center">
+                                                <i class="bi bi-file-earmark-spreadsheet text-success me-3" style="font-size: 2rem;"></i>
+                                                <div class="flex-grow-1">
+                                                    <h6 class="mb-0" id="fileName">filename.csv</h6>
+                                                    <small class="text-muted" id="fileSize">0 KB</small>
+                                                </div>
+                                                <button type="button" class="btn btn-sm btn-outline-danger" id="removeFile">
+                                                    <i class="bi bi-x-lg"></i>
+                                                </button>
+                                            </div>
+                                        </div>
+                                        
+                                        <!-- Upload Button -->
+                                        <div class="d-grid mt-4">
+                                            <button type="submit" class="btn btn-primary btn-lg" id="uploadBtn" disabled>
+                                                <i class="bi bi-upload me-2"></i>Upload Data
+                                            </button>
+                                        </div>
+                                    </form>
+                                    
+                                    <!-- Upload Progress -->
+                                    <div class="upload-progress d-none mt-4" id="uploadProgress">
+                                        <div class="progress" style="height: 25px;">
+                                            <div class="progress-bar progress-bar-striped progress-bar-animated" 
+                                                 id="uploadProgressBar" style="width: 0%">0%</div>
+                                        </div>
+                                        <p class="text-center mt-2 text-muted" id="uploadStatus">Uploading...</p>
+                                    </div>
+                                    
+                                    <!-- Upload Result -->
+                                    <div class="upload-result d-none mt-4" id="uploadResult">
+                                        <div class="alert" id="uploadAlert">
+                                            <i class="bi me-2" id="uploadAlertIcon"></i>
+                                            <span id="uploadAlertMessage"></span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                            
+                            <!-- Upload Requirements -->
+                            <div class="chart-card mt-4">
+                                <div class="chart-header">
+                                    <h5 class="chart-title">
+                                        <i class="bi bi-file-earmark-text me-2"></i>File Requirements
+                                    </h5>
+                                </div>
+                                <div class="chart-body p-4">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <h6>Required Columns:</h6>
+                                            <ul class="list-unstyled">
+                                                <li><code>date</code> - Date (YYYY-MM-DD format)</li>
+                                                <li><code>daily_sales</code> - Daily sales value</li>
+                                            </ul>
+                                        </div>
+                                        <div class="col-md-6">
+                                            <h6>Optional Columns:</h6>
+                                            <ul class="list-unstyled">
+                                                <li><code>marketing_spend</code> - Marketing spend</li>
+                                                <li><code>is_holiday</code> - Holiday flag (0/1)</li>
+                                            </ul>
+                                        </div>
+                                    </div>
+                                    <hr>
+                                    <p class="text-muted small mb-0">
+                                        <i class="bi bi-info-circle me-1"></i>
+                                        File must be in CSV format. Maximum file size: 10MB.
+                                        After upload, you'll need to retrain models for accurate predictions.
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container-fluid">
+            <div class="row">
+                <div class="col-md-6">
+                    <span class="text-muted">Sales Forecasting System v2.0</span>
+                </div>
+                <div class="col-md-6 text-md-end">
+                    <span class="text-muted" id="lastUpdated">Last updated: --</span>
+                </div>
+            </div>
+        </div>
+    </footer>
+
+    <!-- Error Toast -->
+    <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <div id="errorToast" class="toast align-items-center text-bg-danger border-0" role="alert">
+            <div class="d-flex">
+                <div class="toast-body" id="errorToastMessage">
+                    An error occurred.
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+            </div>
+        </div>
+        <div id="successToast" class="toast align-items-center text-bg-success border-0" role="alert">
+            <div class="d-flex">
+                <div class="toast-body" id="successToastMessage">
+                    Success!
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Bootstrap JS -->
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.2/dist/js/bootstrap.bundle.min.js"></script>
+    <!-- jQuery -->
+    <script src="https://code.jquery.com/jquery-3.7.1.min.js"></script>
+    <!-- Custom JS -->
+    <script src="/app/js/config.js"></script>
+    <script src="/app/js/api.js"></script>
+    <script src="/app/js/charts.js"></script>
+    <script src="/app/js/data.js"></script>
+</body>
+</html>
+
