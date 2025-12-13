@@ -1115,3 +1115,238 @@ body {
 .category-seasonality { background: var(--gradient-warning); }
 .category-distribution { background: var(--gradient-info); }
 .category-correlation { background: var(--gradient-danger); }
+
+/* ==================== TERMINAL STYLES ==================== */
+
+.terminal-container {
+    background: #1e1e2e;
+    height: 600px;
+    overflow-y: auto;
+    font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+    font-size: 0.8125rem;
+    line-height: 1.5;
+    scroll-behavior: smooth;
+}
+
+.terminal-output {
+    padding: 1rem;
+    min-height: 100%;
+}
+
+.terminal-line {
+    display: flex;
+    gap: 0.75rem;
+    padding: 0.125rem 0;
+    word-break: break-all;
+}
+
+.terminal-timestamp {
+    color: #6c7086;
+    font-weight: 500;
+    flex-shrink: 0;
+    user-select: none;
+}
+
+.terminal-text {
+    color: #cdd6f4;
+    flex: 1;
+}
+
+/* Terminal line types */
+.terminal-info .terminal-text {
+    color: #cdd6f4;
+}
+
+.terminal-success .terminal-text {
+    color: #a6e3a1;
+}
+
+.terminal-warning .terminal-text {
+    color: #f9e2af;
+}
+
+.terminal-error .terminal-text {
+    color: #f38ba8;
+    font-weight: 500;
+}
+
+/* Terminal line with separator */
+.terminal-line .terminal-text:empty::before {
+    content: '';
+    display: block;
+}
+
+/* Highlighted lines */
+.terminal-line.terminal-success .terminal-timestamp {
+    color: #a6e3a1;
+}
+
+.terminal-line.terminal-error .terminal-timestamp {
+    color: #f38ba8;
+}
+
+.terminal-line.terminal-warning .terminal-timestamp {
+    color: #f9e2af;
+}
+
+/* Selection styling */
+.terminal-output ::selection {
+    background: rgba(166, 227, 161, 0.3);
+    color: inherit;
+}
+
+/* Custom scrollbar for terminal */
+.terminal-container::-webkit-scrollbar {
+    width: 10px;
+}
+
+.terminal-container::-webkit-scrollbar-track {
+    background: #11111b;
+}
+
+.terminal-container::-webkit-scrollbar-thumb {
+    background: #45475a;
+    border-radius: 5px;
+}
+
+.terminal-container::-webkit-scrollbar-thumb:hover {
+    background: #585b70;
+}
+
+/* Upload area states */
+.upload-area.drag-over {
+    border-color: var(--primary-color);
+    background: var(--primary-subtle);
+    transform: scale(1.02);
+}
+
+/* Pipeline status badge styles */
+.pipeline-status-badge .badge {
+    font-size: 0.875rem;
+    padding: 0.5rem 1rem;
+}
+
+/* Terminal footer */
+.terminal-footer {
+    background: #11111b;
+    padding: 0.5rem 1rem;
+    border-top: 1px solid #313244;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.terminal-footer small {
+    color: #6c7086;
+}
+
+/* WebSocket status indicators */
+#wsStatus.text-success {
+    color: #a6e3a1 !important;
+}
+
+#wsStatus.text-danger {
+    color: #f38ba8 !important;
+}
+
+#wsStatus.text-warning {
+    color: #f9e2af !important;
+}
+
+/* Responsive terminal */
+@media (max-width: 768px) {
+    .terminal-container {
+        height: 400px;
+        font-size: 0.75rem;
+    }
+    
+    .terminal-timestamp {
+        display: none;
+    }
+}
+
+/* ==================== CONFIRMATION SECTION STYLES ==================== */
+
+.requirement-card {
+    display: flex;
+    gap: 1rem;
+    padding: 1.25rem;
+    background: var(--bg-sidebar);
+    border-radius: var(--radius-md);
+    border: 1px solid var(--border-color);
+    height: 100%;
+    transition: var(--transition-fast);
+}
+
+.requirement-card:hover {
+    border-color: var(--primary-light);
+    box-shadow: var(--shadow-md);
+}
+
+.requirement-number {
+    width: 36px;
+    height: 36px;
+    min-width: 36px;
+    background: var(--gradient-primary);
+    color: white;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-weight: 700;
+    font-size: 1rem;
+}
+
+.requirement-content {
+    flex: 1;
+}
+
+.requirement-content h6 {
+    font-weight: 600;
+    margin-bottom: 0.5rem;
+    color: var(--text-primary);
+}
+
+.requirement-content p {
+    font-size: 0.875rem;
+    line-height: 1.5;
+}
+
+.confirmation-input-section {
+    background: var(--primary-subtle);
+    padding: 2rem;
+    border-radius: var(--radius-lg);
+    border: 2px dashed var(--primary-color);
+}
+
+.confirmation-input-section input.valid {
+    border-color: var(--success-color);
+    background: rgba(16, 185, 129, 0.1);
+}
+
+.confirmation-input-section input.invalid {
+    border-color: var(--danger-color);
+}
+
+/* Warning subtle background */
+.bg-warning-subtle {
+    background: rgba(245, 158, 11, 0.1) !important;
+}
+
+/* Hidden by default when not confirmed */
+.upload-locked {
+    pointer-events: none;
+    opacity: 0.4;
+    position: relative;
+}
+
+.upload-locked::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(255, 255, 255, 0.5);
+    z-index: 10;
+}

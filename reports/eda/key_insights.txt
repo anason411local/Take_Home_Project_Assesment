@@ -1,8 +1,0 @@
-KEY INSIGHTS FROM EDA
-==================================================
-
-1. Strong upward trend detected (R²=0.976)
-2. Significant growth: 105.2% from first to second half
-3. Day-of-week effect: Saturday is best, Sunday is worst
-4. Strong correlation: marketing_spend (r=1.000)
-5. High autocorrelation at lag-1: 0.983 (good for time series models)

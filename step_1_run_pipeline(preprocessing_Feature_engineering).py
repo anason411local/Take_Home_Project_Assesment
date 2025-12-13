@@ -2,7 +2,7 @@
 Step 1: Data Processing Pipeline for Sales Forecasting
 
 This script:
-1. Prompts user for CSV file path (or uses default)
+1. Prompts user for CSV file path (or uses default/command-line arg)
 2. Imports raw data into SQLite database
 3. Validates data quality
 4. Cleans and preprocesses the data
@@ -11,10 +11,12 @@ This script:
 
 Usage:
     python "step_1_run_pipeline(preprocessing_Feature_engineering).py"
+    python "step_1_run_pipeline(preprocessing_Feature_engineering).py" --input path/to/file.csv
 
 All terminal output is automatically logged to logs/ directory.
 """
 import sys
+import argparse
 from pathlib import Path
 
 # Add src to path for imports
@@ -26,8 +28,33 @@ from src.utils.config import Config
 from src.utils.terminal_logger import TerminalLogger
 
 
-def get_csv_file_path() -> str:
-    """Prompt user for CSV file path."""
+def parse_args():
+    """Parse command line arguments."""
+    parser = argparse.ArgumentParser(description="Data Processing Pipeline for Sales Forecasting")
+    parser.add_argument(
+        '--input', '-i',
+        type=str,
+        default=None,
+        help='Path to input CSV file (skips interactive prompt if provided)'
+    )
+    return parser.parse_args()
+
+
+def get_csv_file_path(input_arg: str = None) -> str:
+    """Get CSV file path from argument or prompt user."""
+    
+    # If input argument provided, use it directly
+    if input_arg:
+        csv_path = input_arg
+        if not Path(csv_path).exists():
+            print(f"ERROR: File not found: {csv_path}")
+            sys.exit(1)
+        if not csv_path.lower().endswith('.csv'):
+            print(f"ERROR: File must be a CSV file: {csv_path}")
+            sys.exit(1)
+        return csv_path
+    
+    # Interactive mode
     print("\n" + "="*60)
     print("DATA INPUT")
     print("="*60)
@@ -62,19 +89,20 @@ def get_csv_file_path() -> str:
 
 def main():
     """Run the complete data processing pipeline."""
+    args = parse_args()
     
     # Initialize terminal logging
     terminal_logger = TerminalLogger("step_1_preprocessing", logs_dir="logs")
     terminal_logger.start()
     
     try:
-        return _run_pipeline(terminal_logger)
+        return _run_pipeline(terminal_logger, input_file_arg=args.input)
     finally:
         terminal_logger.stop()
         print(f"\nLog saved to: {terminal_logger.get_log_path()}")
 
 
-def _run_pipeline(terminal_logger):
+def _run_pipeline(terminal_logger, input_file_arg=None):
     """Internal pipeline execution."""
     
     print("="*70)
@@ -82,8 +110,8 @@ def _run_pipeline(terminal_logger):
     print("="*70)
     print(f"Log file: {terminal_logger.get_log_path()}")
     
-    # Get CSV file path from user
-    input_file = get_csv_file_path()
+    # Get CSV file path from argument or user prompt
+    input_file = get_csv_file_path(input_file_arg)
     print(f"\nUsing file: {input_file}")
     
     # Initialize database

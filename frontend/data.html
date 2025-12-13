@@ -45,8 +45,8 @@
                         </a>
                     </li>
                     <li class="nav-item">
-                        <a class="nav-link" href="/app/data.html#eda" id="edaNavLink">
-                            <i class="bi bi-bar-chart-line me-1"></i> EDA
+                        <a class="nav-link" href="/app/retraining.html">
+                            <i class="bi bi-arrow-repeat me-1"></i> Retrain Models
                         </a>
                     </li>
                 </ul>
@@ -110,12 +110,6 @@
                             <button class="nav-link" id="features-tab" data-bs-toggle="tab" 
                                     data-bs-target="#features" type="button" role="tab">
                                 <i class="bi bi-bar-chart-steps me-2"></i>Feature Importance
-                            </button>
-                        </li>
-                        <li class="nav-item" role="presentation">
-                            <button class="nav-link" id="upload-tab" data-bs-toggle="tab" 
-                                    data-bs-target="#upload" type="button" role="tab">
-                                <i class="bi bi-cloud-upload me-2"></i>Upload Data
                             </button>
                         </li>
                     </ul>
@@ -561,105 +555,6 @@
                     </div>
                 </div>
 
-                <!-- Upload Data Tab -->
-                <div class="tab-pane fade" id="upload" role="tabpanel">
-                    <div class="row justify-content-center">
-                        <div class="col-lg-8">
-                            <div class="chart-card">
-                                <div class="chart-header">
-                                    <h5 class="chart-title">
-                                        <i class="bi bi-cloud-upload me-2"></i>Upload New Data
-                                    </h5>
-                                </div>
-                                <div class="chart-body p-4">
-                                    <!-- Upload Form -->
-                                    <form id="uploadForm">
-                                        <div class="upload-area" id="uploadArea">
-                                            <i class="bi bi-cloud-arrow-up upload-icon"></i>
-                                            <h5>Drag & Drop CSV File</h5>
-                                            <p class="text-muted">or click to browse</p>
-                                            <input type="file" id="fileInput" accept=".csv" class="d-none">
-                                            <button type="button" class="btn btn-outline-primary" id="browseBtn">
-                                                <i class="bi bi-folder2-open me-2"></i>Browse Files
-                                            </button>
-                                        </div>
-                                        
-                                        <!-- Selected File Info -->
-                                        <div class="selected-file d-none" id="selectedFile">
-                                            <div class="d-flex align-items-center">
-                                                <i class="bi bi-file-earmark-spreadsheet text-success me-3" style="font-size: 2rem;"></i>
-                                                <div class="flex-grow-1">
-                                                    <h6 class="mb-0" id="fileName">filename.csv</h6>
-                                                    <small class="text-muted" id="fileSize">0 KB</small>
-                                                </div>
-                                                <button type="button" class="btn btn-sm btn-outline-danger" id="removeFile">
-                                                    <i class="bi bi-x-lg"></i>
-                                                </button>
-                                            </div>
-                                        </div>
-                                        
-                                        <!-- Upload Button -->
-                                        <div class="d-grid mt-4">
-                                            <button type="submit" class="btn btn-primary btn-lg" id="uploadBtn" disabled>
-                                                <i class="bi bi-upload me-2"></i>Upload Data
-                                            </button>
-                                        </div>
-                                    </form>
-                                    
-                                    <!-- Upload Progress -->
-                                    <div class="upload-progress d-none mt-4" id="uploadProgress">
-                                        <div class="progress" style="height: 25px;">
-                                            <div class="progress-bar progress-bar-striped progress-bar-animated" 
-                                                 id="uploadProgressBar" style="width: 0%">0%</div>
-                                        </div>
-                                        <p class="text-center mt-2 text-muted" id="uploadStatus">Uploading...</p>
-                                    </div>
-                                    
-                                    <!-- Upload Result -->
-                                    <div class="upload-result d-none mt-4" id="uploadResult">
-                                        <div class="alert" id="uploadAlert">
-                                            <i class="bi me-2" id="uploadAlertIcon"></i>
-                                            <span id="uploadAlertMessage"></span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                            
-                            <!-- Upload Requirements -->
-                            <div class="chart-card mt-4">
-                                <div class="chart-header">
-                                    <h5 class="chart-title">
-                                        <i class="bi bi-file-earmark-text me-2"></i>File Requirements
-                                    </h5>
-                                </div>
-                                <div class="chart-body p-4">
-                                    <div class="row">
-                                        <div class="col-md-6">
-                                            <h6>Required Columns:</h6>
-                                            <ul class="list-unstyled">
-                                                <li><code>date</code> - Date (YYYY-MM-DD format)</li>
-                                                <li><code>daily_sales</code> - Daily sales value</li>
-                                            </ul>
-                                        </div>
-                                        <div class="col-md-6">
-                                            <h6>Optional Columns:</h6>
-                                            <ul class="list-unstyled">
-                                                <li><code>marketing_spend</code> - Marketing spend</li>
-                                                <li><code>is_holiday</code> - Holiday flag (0/1)</li>
-                                            </ul>
-                                        </div>
-                                    </div>
-                                    <hr>
-                                    <p class="text-muted small mb-0">
-                                        <i class="bi bi-info-circle me-1"></i>
-                                        File must be in CSV format. Maximum file size: 10MB.
-                                        After upload, you'll need to retrain models for accurate predictions.
-                                    </p>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
             </div>
         </div>
     </main>

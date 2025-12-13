@@ -61,6 +61,7 @@ from .websocket import (
     MessageType,
     get_connection_manager
 )
+from .pipeline_manager import PipelineManager, PipelineConfig, PipelineStep, get_pipeline_manager
 from ..data.database import get_database
 from ..forecasting.forecaster import Forecaster
 
@@ -1874,6 +1875,316 @@ async def get_eda_image(filename: str):
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to get EDA image: {str(e)}"
         )
+
+
+# ==================== TRAINING PIPELINE ENDPOINTS ====================
+
+# Store active training WebSocket connections
+_training_connections: Dict[str, WebSocket] = {}
+
+
+@app.post(
+    "/api/training/upload",
+    tags=["Training"],
+    summary="Upload CSV for training"
+)
+async def upload_training_csv(
+    file: UploadFile = File(..., description="CSV file with sales data")
+):
+    """
+    Upload a CSV file to start the training pipeline.
+    
+    The CSV file must contain:
+    - **date**: Date column (YYYY-MM-DD format)
+    - **daily_sales**: Daily sales values
+    
+    After upload, call `/api/training/start` to begin the pipeline.
+    """
+    try:
+        # Validate file type
+        if not file.filename.endswith('.csv'):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Only CSV files are accepted"
+            )
+        
+        # Read file content
+        content = await file.read()
+        
+        # Get pipeline manager and upload
+        manager = get_pipeline_manager(project_root)
+        result = await manager.upload_csv(content, file.filename)
+        
+        if not result["success"]:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=result.get("error", "Upload failed")
+            )
+        
+        return {
+            "success": True,
+            "message": "File uploaded successfully",
+            **result
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Upload failed: {str(e)}"
+        )
+
+
+@app.post(
+    "/api/training/start",
+    tags=["Training"],
+    summary="Start training pipeline"
+)
+async def start_training_pipeline(
+    optuna_trials: int = Query(10, ge=1, le=100, description="Number of Optuna trials"),
+    models: str = Query(
+        "linear_trend,xgboost,random_forest,prophet,sarima",
+        description="Comma-separated list of models to train"
+    ),
+    test_size: float = Query(0.2, ge=0.1, le=0.4, description="Test set fraction"),
+    use_holdout: bool = Query(False, description="Use holdout split (Option 1)"),
+    skip_eda: bool = Query(False, description="Skip EDA step"),
+    skip_training: bool = Query(False, description="Skip training (only preprocessing)")
+):
+    """
+    Start the complete training pipeline.
+    
+    Pipeline steps:
+    1. **Preprocessing**: Data validation, cleaning, feature engineering
+    2. **EDA**: Exploratory data analysis (optional)
+    3. **Training**: Model training with Optuna optimization
+    
+    Connect to WebSocket `/ws/training/{session_id}` to receive real-time logs.
+    """
+    try:
+        manager = get_pipeline_manager(project_root)
+        
+        # Check if already running
+        status_info = manager.get_status()
+        if status_info["is_running"]:
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail="Pipeline is already running"
+            )
+        
+        # Parse models
+        model_list = [m.strip() for m in models.split(",")]
+        
+        # Create config
+        config = PipelineConfig(
+            optuna_trials=optuna_trials,
+            models=model_list,
+            test_size=test_size,
+            use_holdout=use_holdout,
+            skip_eda=skip_eda,
+            skip_training=skip_training
+        )
+        
+        # Start pipeline in background
+        asyncio.create_task(_run_pipeline_async(manager, config))
+        
+        return {
+            "success": True,
+            "message": "Pipeline started",
+            "config": config.to_dict()
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start pipeline: {str(e)}"
+        )
+
+
+async def _run_pipeline_async(manager: PipelineManager, config: PipelineConfig):
+    """Run pipeline in background and broadcast logs."""
+    
+    # Set up log streaming to WebSocket clients
+    async def log_callback(message: str, log_type: str):
+        """Broadcast log to all connected training WebSockets."""
+        for session_id, ws in list(_training_connections.items()):
+            try:
+                await ws.send_json({
+                    "type": "log",
+                    "message": message,
+                    "log_type": log_type,
+                    "timestamp": datetime.now().isoformat()
+                })
+            except:
+                # Connection closed
+                _training_connections.pop(session_id, None)
+    
+    async def status_callback(status_obj):
+        """Broadcast status to all connected training WebSockets."""
+        for session_id, ws in list(_training_connections.items()):
+            try:
+                await ws.send_json({
+                    "type": "status",
+                    "status": status_obj.to_dict()
+                })
+            except:
+                _training_connections.pop(session_id, None)
+    
+    manager.set_log_callback(lambda msg, log_type: asyncio.create_task(log_callback(msg, log_type)))
+    manager.set_status_callback(lambda s: asyncio.create_task(status_callback(s)))
+    
+    # Run pipeline
+    result = await manager.run_pipeline(config)
+    
+    # Notify completion
+    for session_id, ws in list(_training_connections.items()):
+        try:
+            await ws.send_json({
+                "type": "complete",
+                "success": result["success"],
+                "results": result.get("results"),
+                "error": result.get("error")
+            })
+        except:
+            pass
+    
+    # Reset forecaster to load new models
+    global _forecaster
+    _forecaster = None
+
+
+@app.get(
+    "/api/training/status",
+    tags=["Training"],
+    summary="Get training status"
+)
+async def get_training_status():
+    """Get current training pipeline status."""
+    try:
+        manager = get_pipeline_manager(project_root)
+        status_info = manager.get_status()
+        logs = manager.get_logs(limit=50)
+        
+        return {
+            "success": True,
+            **status_info,
+            "recent_logs": logs
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get status: {str(e)}"
+        )
+
+
+@app.post(
+    "/api/training/cancel",
+    tags=["Training"],
+    summary="Cancel training pipeline"
+)
+async def cancel_training_pipeline():
+    """Cancel the currently running training pipeline."""
+    try:
+        manager = get_pipeline_manager(project_root)
+        
+        if not manager.get_status()["is_running"]:
+            return {
+                "success": False,
+                "message": "No pipeline is currently running"
+            }
+        
+        manager.cancel()
+        
+        return {
+            "success": True,
+            "message": "Pipeline cancellation requested"
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to cancel: {str(e)}"
+        )
+
+
+@app.post(
+    "/api/training/reset",
+    tags=["Training"],
+    summary="Reset training state"
+)
+async def reset_training_state():
+    """Reset the training pipeline state."""
+    try:
+        manager = get_pipeline_manager(project_root)
+        manager.reset()
+        
+        return {
+            "success": True,
+            "message": "Training state reset"
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to reset: {str(e)}"
+        )
+
+
+@app.websocket("/ws/training/{session_id}")
+async def training_websocket_endpoint(websocket: WebSocket, session_id: str):
+    """
+    WebSocket endpoint for real-time training log streaming.
+    
+    Connect to receive:
+    - **log**: Real-time log messages from training scripts
+    - **status**: Pipeline status updates
+    - **complete**: Pipeline completion notification
+    """
+    await websocket.accept()
+    _training_connections[session_id] = websocket
+    
+    logger.info(f"Training WebSocket connected: session={session_id}")
+    
+    try:
+        # Send current status
+        manager = get_pipeline_manager(project_root)
+        await websocket.send_json({
+            "type": "connected",
+            "session_id": session_id,
+            "status": manager.get_status()
+        })
+        
+        # Send recent logs
+        for log in manager.get_logs(limit=100):
+            await websocket.send_json({
+                "type": "log",
+                "message": log,
+                "log_type": "info"
+            })
+        
+        # Keep connection alive
+        while True:
+            try:
+                data = await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+                
+                # Handle ping/pong
+                if data == "ping":
+                    await websocket.send_text("pong")
+                    
+            except asyncio.TimeoutError:
+                # Send heartbeat
+                try:
+                    await websocket.send_json({"type": "heartbeat"})
+                except:
+                    break
+                    
+    except WebSocketDisconnect:
+        logger.info(f"Training WebSocket disconnected: session={session_id}")
+    except Exception as e:
+        logger.error(f"Training WebSocket error: {e}")
+    finally:
+        _training_connections.pop(session_id, None)
 
 
 # ==================== FRONTEND ROUTES ====================

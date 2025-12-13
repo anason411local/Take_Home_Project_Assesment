@@ -18,7 +18,7 @@
 - [Run the Web Application (API + Frontend)](#run-the-web-application-api--frontend)
 - [API Documentation](#api-documentation)
 - [REST API Endpoints](#rest-api-endpoints)
-- [WebSocket Endpoint](#websocket-endpoint)
+- [WebSocket Endpoints](#websocket-endpoints)
 - [Frontend Web Application](#frontend-web-application)
 - [Data Persistence (SQLite)](#data-persistence-sqlite)
   - [Database Schemas](#database-schemas)
@@ -100,61 +100,155 @@ This project leverages a comprehensive set of technologies across different laye
     *   Serving of EDA reports and visualizations.
 -   **Real-time WebSocket**: Stream forecast progress updates to the frontend for interactive user experience.
 -   **Interactive Web Frontend**:
-    *   Multi-page application (Overview, Forecast, Data View, EDA).
+    *   Multi-page application (Overview, Forecast, Data View, Real-time Training).
     *   Built with HTML, CSS (Bootstrap 5), JavaScript (jQuery), and Plotly.js for interactive charts.
     *   Light theme for a clean, modern aesthetic.
     *   Seamless forecast continuity between historical and forecasted data points.
     *   Visual representation of confidence intervals on forecast charts.
     *   MLOps and Optuna dashboard access buttons.
     *   Structured display of EDA reports and images.
+-   **Real-time Model Training Pipeline**:
+    *   Upload new CSV data and trigger full ML pipeline from the web interface.
+    *   Confirmation step with important requirements and warnings before upload.
+    *   Live terminal log streaming via WebSocket during training.
+    *   Chained execution: Preprocessing → EDA → Model Training.
+    *   Configurable options: model selection, Optuna trials, test size, feature mode.
+    *   Newly trained models automatically become the default for forecasting.
 -   **Detailed Logging**: All pipeline steps log terminal output to timestamped files in the `logs/` directory.
 -   **Docker Ready**: API and dashboard commands are configured for containerized deployment.
 
 ## Project Structure
 
 ```
-├── data/
-│   ├── raw/                    # Raw input data (e.g., ecommerce_sales_data (1).csv)
-│   └── processed/              # Processed features (sales_features.csv)
-├── database/
-│   ├── sales_data.db           # Input data source (SQLite)
-│   └── results.db              # Training results, forecasts, EDA insights (SQLite)
-├── forecasts/                  # Optional CSV forecast outputs
-├── logs/                       # Terminal logs for each pipeline step
-├── models/
-│   ├── saved/                  # Trained model files (.pkl)
-│   ├── optuna/                 # Optuna study database (optuna_studies.db)
-│   ├── feature_importance/     # Feature importance CSVs (for tree-based models)
-│   └── learning_curves/        # Learning curve plots (for ML models)
-├── mlruns/                     # MLflow experiment tracking directory
-├── reports/
-│   └── eda/                    # EDA visualizations (PNG) and text reports (TXT)
-├── src/
-│   ├── api/                    # FastAPI application, schemas, session, websocket managers
-│   ├── data/                   # Data loading, validation, cleaning, database utilities
-│   ├── eda/                    # Exploratory data analysis (analyzer, visualizer)
-│   ├── features/               # Feature engineering logic
-│   ├── models/                 # Model implementations (LinearTrend, XGBoost, RandomForest, Prophet, SARIMA)
-│   ├── training/               # Model training (trainer, data_splitter)
-│   ├── forecasting/            # Prediction generation
-│   └── utils/                  # Utility functions (config, logging)
-├── frontend/                   # Web interface (HTML, CSS, JS)
-│   ├── css/                    # Custom CSS styles
-│   ├── js/                     # JavaScript logic (API client, charts, page specific logic)
-│   └── *.html                  # HTML pages (index, forecast, data)
-├── tests/                      # Unit tests
-├── app.py                      # Main application entry point (starts FastAPI server and opens browser)
-├── step_1_run_pipeline.py      # Data preprocessing and feature engineering
-├── step_2_eda_analysis.py      # EDA and visualizations
-├── step_3_train_models.py      # Model training and optimization
-├── step_4_forecast.py          # Generate forecasts
-├── requirements.txt            # Python dependencies
-└── README.md
+├── 📄 app.py                          # Main application entry point
+├── 📄 requirements.txt                # Python dependencies
+├── 📄 README.md                       # This file
+│
+├── 🔧 Pipeline Scripts
+│   ├── step_1_run_pipeline(...).py    # Data preprocessing & feature engineering
+│   ├── step_2_eda_analysis.py         # Exploratory data analysis
+│   ├── step_3_train_models.py         # Model training with Optuna/MLflow
+│   └── step_4_forecast(testing).py    # Generate predictions
+│
+├── 📂 src/                            # Source code modules
+│   ├── 📂 api/                        # FastAPI application
+│   │   ├── main.py                    # API routes and endpoints
+│   │   ├── schemas.py                 # Pydantic models
+│   │   ├── session.py                 # Session management
+│   │   ├── websocket.py               # WebSocket connection manager
+│   │   └── pipeline_manager.py        # Real-time training orchestrator
+│   │
+│   ├── 📂 data/                       # Data handling
+│   │   ├── loader.py                  # CSV data loading
+│   │   ├── validator.py               # Data validation rules
+│   │   ├── cleaner.py                 # Data cleaning utilities
+│   │   ├── pipeline.py                # Data pipeline orchestrator
+│   │   └── database.py                # SQLite database manager
+│   │
+│   ├── 📂 eda/                        # Exploratory Data Analysis
+│   │   ├── analyzer.py                # Statistical analysis
+│   │   └── visualizer.py              # EDA visualizations
+│   │
+│   ├── 📂 features/                   # Feature engineering
+│   │   └── engineer.py                # Feature creation logic
+│   │
+│   ├── 📂 models/                     # ML model implementations
+│   │   └── models.py                  # All model classes
+│   │
+│   ├── 📂 training/                   # Model training
+│   │   ├── trainer.py                 # Training orchestrator
+│   │   ├── data_splitter.py           # Time series splitting
+│   │   └── metrics.py                 # Evaluation metrics
+│   │
+│   ├── 📂 forecasting/                # Prediction generation
+│   │   └── forecaster.py              # Multi-day forecasting
+│   │
+│   └── 📂 utils/                      # Utilities
+│       ├── config.py                  # Configuration settings
+│       ├── logger.py                  # Logging utilities
+│       └── terminal_logger.py         # Terminal output capture
+│
+├── 📂 frontend/                       # Web interface
+│   ├── 📂 css/
+│   │   └── styles.css                 # Custom styles (light theme)
+│   ├── 📂 js/
+│   │   ├── config.js                  # Frontend configuration
+│   │   ├── api.js                     # API client
+│   │   ├── charts.js                  # Plotly chart utilities
+│   │   ├── overview.js                # Overview page logic
+│   │   ├── forecast.js                # Forecast page logic
+│   │   ├── data.js                    # Data view page logic
+│   │   └── retraining.js              # Real-time training page logic
+│   ├── index.html                     # Overview/Dashboard page
+│   ├── forecast.html                  # Forecast generation page
+│   ├── data.html                      # Data view & metrics page
+│   └── retraining.html                # Real-time model training page
+│
+├── 📂 data/                           # Data files
+│   ├── 📂 raw/                        # Raw input data
+│   ├── 📂 processed/                  # Processed features
+│   └── 📂 uploads/                    # Uploaded files (runtime)
+│
+├── 📂 database/                       # SQLite databases
+│   ├── sales_data.db                  # Input data & processed features
+│   └── results.db                     # Training results & forecasts
+│
+├── 📂 models/                         # Model artifacts
+│   ├── 📂 saved/                      # Trained model files (.pkl)
+│   │   ├── linear_trend.pkl
+│   │   ├── xgboost.pkl
+│   │   ├── random_forest.pkl
+│   │   ├── prophet.pkl
+│   │   └── sarima.pkl
+│   ├── 📂 optuna/                     # Optuna studies
+│   │   └── optuna_studies.db
+│   ├── 📂 feature_importance/         # Feature importance CSVs
+│   │   ├── xgboost_importance.csv
+│   │   └── random_forest_importance.csv
+│   └── 📂 learning_curves/            # Learning curve plots
+│       ├── xgboost_learning_curve.png
+│       └── random_forest_learning_curve.png
+│
+├── 📂 reports/                        # Generated reports
+│   └── 📂 eda/                        # EDA outputs
+│       ├── eda_report.txt             # Full statistical report
+│       ├── key_insights.txt           # Key findings summary
+│       ├── time_series.png            # Time series plot
+│       ├── distribution.png           # Distribution analysis
+│       ├── seasonality.png            # Seasonality patterns
+│       ├── trend_analysis.png         # Trend decomposition
+│       ├── correlation_heatmap.png    # Feature correlations
+│       ├── boxplots.png               # Outlier analysis
+│       └── summary_dashboard.png      # Summary visualization
+│
+├── 📂 mlruns/                         # MLflow experiment tracking
+│
+├── 📂 logs/                           # Pipeline execution logs
+│   ├── step_1_preprocessing_*.log
+│   ├── step_2_eda_*.log
+│   ├── step_3_training_*.log
+│   └── step_4_forecasting_*.log
+│
+└── 📂 tests/                          # Unit tests
+    └── test_data_pipeline.py
 ```
 
 ## ML Model Workflow & MLOps
 
 This section details the machine learning model training and operational workflow, covering model selection, hyperparameter optimization, experiment tracking, and the robust time series splitting strategy.
+```
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Raw CSV Data  │───▶│  Preprocessing  │───▶│     Features    │
+│                 │    │  & Validation   │    │   Engineering   │
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+                                                       │
+                                                       ▼
+┌─────────────────┐    ┌─────────────────┐    ┌─────────────────┐
+│   Forecasting   │◀───│  Best Model     │◀───│  Model Training │
+│   & Serving     │    │  Selection      │    │  (Optuna+MLflow)│
+└─────────────────┘    └─────────────────┘    └─────────────────┘
+```
+
 
 ### 1. Overall ML Workflow
 
@@ -253,10 +347,10 @@ We prioritize Option 2 as the default because, for production forecasting, using
 
 ### 1. Create Environment
 
-It is recommended to create a dedicated Conda or UV environment with `python=3.10`:
+It is recommended to create a dedicated Conda or UV environment with `python=3.12.9`:
 
 ```bash
-conda create -n sales_forecast python=3.10
+conda create -name sales_forecast python=3.12.9
 conda activate sales_forecast
 ```
 
@@ -267,7 +361,12 @@ uv venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 ```
 
-### 2. Install Dependencies
+### 2. Clone Git Repo
+
+git clone https://github.com/anason411local/Take_Home_Project_Assesment.git
+
+
+### 3. Install Dependencies
 
 Install all required Python packages:
 
@@ -413,16 +512,31 @@ The FastAPI backend provides the following endpoints:
 | `POST` | `/api/dashboards/optuna/start` | Start the Optuna Dashboard server.              | `Dashboards`|
 | `POST` | `/api/dashboards/mlflow/stop`  | Stop the MLflow UI server.                      | `Dashboards`|
 | `POST` | `/api/dashboards/optuna/stop`  | Stop the Optuna Dashboard server.               | `Dashboards`|
+| `POST` | `/api/training/upload`      | Upload a CSV file for real-time model training.   | `Training`  |
+| `POST` | `/api/training/start`       | Start the training pipeline with uploaded data.   | `Training`  |
+| `GET`  | `/api/training/status`      | Get the current status of the training pipeline.  | `Training`  |
+| `POST` | `/api/training/cancel`      | Cancel the currently running training pipeline.   | `Training`  |
+| `POST` | `/api/training/reset`       | Reset the training pipeline state.                | `Training`  |
 | `GET`  | `/`                         | API health check.                                 | `Health`    |
 | `GET`  | `/health`                   | Detailed API health check.                        | `Health`    |
 
-## WebSocket Endpoint
+## WebSocket Endpoints
+
+### Forecast Streaming
 
 For real-time forecast streaming and progress updates:
 
 -   **Endpoint**: `ws://127.0.0.1:8000/ws/{session_id}`
 -   Connect using a valid `session_id` obtained from `/api/session`.
 -   Send `{"action": "forecast", "payload": {"horizon": 30, "model": "sarima"}}` to initiate a real-time forecast.
+
+### Training Pipeline Logs
+
+For real-time training pipeline log streaming:
+
+-   **Endpoint**: `ws://127.0.0.1:8000/ws/training/{session_id}`
+-   Connect to receive live terminal output during model training.
+-   Messages include: `log` (terminal output), `step_start`, `step_complete`, `pipeline_complete`, `pipeline_error`.
 
 ## Frontend Web Application
 
@@ -449,6 +563,24 @@ The interactive web dashboard provides a user-friendly interface to the forecast
     *   **Model Metrics Tab**: Detailed table and bar chart comparing model performance (MAPE, MAE, RMSE).
     *   **Feature Importance Tab**: Bar chart and table displaying feature importance for tree-based models (XGBoost, Random Forest).
     *   **Upload Data Tab**: User interface to upload new CSV sales data to the system.
+
+4.  **Real-time Model Training (`/app/retraining.html`)**:
+    *   **Confirmation Required**: Before uploading, users must read important requirements and type "confirmed" to enable the upload section.
+    *   **Requirements & Warnings Displayed**:
+        1.  CSV format is required.
+        2.  Required column order: `date, daily_sales, product_category, marketing_spend, day_of_week, is_holiday`.
+        3.  Warning about computational resource limits (Medium/Tiny hosted instances).
+        4.  Notification that newly trained models will automatically become the default.
+        5.  Guidance to use MLflow and Optuna dashboards for detailed tracking.
+    *   **File Upload**: Drag & drop or browse to upload a new CSV dataset.
+    *   **Pipeline Configuration**: Options to select models, number of Optuna trials, test size, feature mode, and training mode.
+    *   **Real-time Terminal Logs**: Live streaming of terminal output from each pipeline step via WebSocket.
+    *   **Pipeline Steps Executed**:
+        1.  `step_1_run_pipeline.py` (Preprocessing & Feature Engineering)
+        2.  `step_2_eda_analysis.py` (Exploratory Data Analysis)
+        3.  `step_3_train_models.py` (Model Training with Optuna & MLflow)
+    *   **Progress Tracking**: Visual progress bar and step indicators.
+    *   **Download Logs**: Option to download the complete training log.
 
 ### Dashboards Integration
 
