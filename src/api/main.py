@@ -116,6 +116,19 @@ if frontend_dir.exists():
     app.mount("/static", StaticFiles(directory=str(frontend_dir)), name="static")
 
 
+# ==================== LIFECYCLE EVENTS ====================
+
+@app.on_event("shutdown")
+async def shutdown_event():
+    """Clean up dashboard processes on application shutdown."""
+    logger.info("Application shutting down - cleaning up dashboard processes...")
+    try:
+        manager = get_dashboard_manager()
+        manager.stop_all()
+    except Exception as e:
+        logger.error(f"Error during shutdown cleanup: {e}")
+
+
 # ==================== GLOBAL INSTANCES ====================
 
 # Initialize forecaster (lazy loading)
@@ -142,6 +155,312 @@ def get_forecaster() -> Forecaster:
         logger.warning(f"Could not update last_data_date: {e}")
     
     return _forecaster
+
+
+# ==================== DASHBOARD PROCESS MANAGER ====================
+
+import subprocess
+import socket
+import signal
+import atexit
+import time
+
+# Environment variables for Docker/deployment configuration
+MLFLOW_PORT = int(os.environ.get("MLFLOW_PORT", "5000"))
+OPTUNA_PORT = int(os.environ.get("OPTUNA_PORT", "8080"))
+DASHBOARD_HOST = os.environ.get("DASHBOARD_HOST", "")  # Empty means use request host
+EXTERNAL_HOST = os.environ.get("EXTERNAL_HOST", "")  # For Docker: the external hostname/IP
+
+
+class DashboardManager:
+    """
+    Manages MLflow and Optuna dashboard processes.
+    
+    Docker-ready with environment variable configuration:
+    - MLFLOW_PORT: Port for MLflow UI (default: 5000)
+    - OPTUNA_PORT: Port for Optuna Dashboard (default: 8080)
+    - DASHBOARD_HOST: Hostname to use in URLs (default: from request)
+    - EXTERNAL_HOST: External hostname for Docker (default: same as request)
+    
+    Example Docker usage:
+        docker run -e MLFLOW_PORT=5000 -e OPTUNA_PORT=8080 -e EXTERNAL_HOST=myserver.com \\
+                   -p 8000:8000 -p 5000:5000 -p 8080:8080 myapp
+    """
+    
+    def __init__(self):
+        self.mlflow_process: Optional[subprocess.Popen] = None
+        self.optuna_process: Optional[subprocess.Popen] = None
+        self.mlflow_port = MLFLOW_PORT
+        self.optuna_port = OPTUNA_PORT
+        
+        # Get Python executable path from current environment
+        self.python_exe = sys.executable
+        self.python_dir = Path(self.python_exe).parent
+        
+        # Scripts directory (where mlflow and optuna-dashboard are installed)
+        if os.name == 'nt':  # Windows
+            self.scripts_dir = self.python_dir / "Scripts"
+        else:  # Linux/Mac
+            self.scripts_dir = self.python_dir
+        
+        # Register cleanup on exit
+        atexit.register(self.cleanup)
+    
+    def cleanup(self):
+        """Clean up all subprocess on exit."""
+        logger.info("Cleaning up dashboard processes...")
+        self._terminate_process(self.mlflow_process, "MLflow")
+        self._terminate_process(self.optuna_process, "Optuna")
+    
+    def _terminate_process(self, process: Optional[subprocess.Popen], name: str):
+        """Safely terminate a subprocess."""
+        if process is not None:
+            try:
+                process.terminate()
+                try:
+                    process.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    process.kill()
+                    process.wait(timeout=2)
+                logger.info(f"{name} process terminated")
+            except Exception as e:
+                logger.warning(f"Error terminating {name}: {e}")
+    
+    def _get_host_url(self, port: int, request_host: Optional[str] = None) -> str:
+        """
+        Get the appropriate URL for the dashboard.
+        
+        Priority:
+        1. EXTERNAL_HOST env var (for Docker/remote access)
+        2. DASHBOARD_HOST env var
+        3. Request host header
+        4. Fallback to localhost
+        """
+        if EXTERNAL_HOST:
+            host = EXTERNAL_HOST
+        elif DASHBOARD_HOST:
+            host = DASHBOARD_HOST
+        elif request_host:
+            # Extract hostname without port
+            host = request_host.split(':')[0]
+        else:
+            host = "localhost"
+        
+        return f"http://{host}:{port}"
+    
+    def is_port_in_use(self, port: int) -> bool:
+        """Check if a port is already in use."""
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            # Check on all interfaces (0.0.0.0) for Docker compatibility
+            return s.connect_ex(('127.0.0.1', port)) == 0
+    
+    def _get_mlflow_cmd(self) -> list:
+        """Get the MLflow command with proper path."""
+        if os.name == 'nt':
+            mlflow_exe = self.scripts_dir / "mlflow.exe"
+            if mlflow_exe.exists():
+                return [str(mlflow_exe)]
+        # Fallback to using python -m mlflow
+        return [self.python_exe, "-m", "mlflow"]
+    
+    def _get_optuna_cmd(self) -> list:
+        """Get the Optuna dashboard command with proper path."""
+        if os.name == 'nt':
+            optuna_exe = self.scripts_dir / "optuna-dashboard.exe"
+            if optuna_exe.exists():
+                return [str(optuna_exe)]
+        # Fallback to using python -m optuna_dashboard
+        return [self.python_exe, "-m", "optuna_dashboard"]
+    
+    def start_mlflow(self, request_host: Optional[str] = None) -> Dict[str, Any]:
+        """Start MLflow UI server."""
+        url = self._get_host_url(self.mlflow_port, request_host)
+        
+        if self.is_port_in_use(self.mlflow_port):
+            return {
+                "status": "running",
+                "port": self.mlflow_port,
+                "url": url,
+                "message": "MLflow UI is already running"
+            }
+        
+        try:
+            mlruns_dir = project_root / "mlruns"
+            if not mlruns_dir.exists():
+                return {
+                    "status": "error",
+                    "message": "MLflow runs directory not found. Train models first."
+                }
+            
+            # Build command - bind to 0.0.0.0 for Docker accessibility
+            cmd = self._get_mlflow_cmd() + ["ui", "--port", str(self.mlflow_port), "--host", "0.0.0.0"]
+            logger.info(f"Starting MLflow with command: {cmd}")
+            
+            # Platform-specific process creation
+            kwargs = {
+                "cwd": str(project_root),
+                "stdout": subprocess.PIPE,
+                "stderr": subprocess.PIPE,
+            }
+            
+            if os.name == 'nt':
+                kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+            else:
+                # On Unix, start new process group for proper cleanup
+                kwargs["start_new_session"] = True
+            
+            # Start MLflow UI
+            self.mlflow_process = subprocess.Popen(cmd, **kwargs)
+            
+            # Wait for startup
+            time.sleep(3)
+            
+            if self.is_port_in_use(self.mlflow_port):
+                return {
+                    "status": "started",
+                    "port": self.mlflow_port,
+                    "url": url,
+                    "message": "MLflow UI started successfully"
+                }
+            else:
+                # Try to get error output
+                stderr = ""
+                if self.mlflow_process.poll() is not None:
+                    _, stderr = self.mlflow_process.communicate(timeout=1)
+                    stderr = stderr.decode('utf-8', errors='ignore') if stderr else ""
+                return {
+                    "status": "error",
+                    "message": f"Failed to start MLflow UI. {stderr[:200] if stderr else ''}"
+                }
+                
+        except Exception as e:
+            logger.error(f"MLflow start error: {e}")
+            return {
+                "status": "error",
+                "message": f"Failed to start MLflow UI: {str(e)}"
+            }
+    
+    def start_optuna(self, request_host: Optional[str] = None) -> Dict[str, Any]:
+        """Start Optuna Dashboard server."""
+        url = self._get_host_url(self.optuna_port, request_host)
+        
+        if self.is_port_in_use(self.optuna_port):
+            return {
+                "status": "running",
+                "port": self.optuna_port,
+                "url": url,
+                "message": "Optuna Dashboard is already running"
+            }
+        
+        try:
+            optuna_db = project_root / "models" / "optuna" / "optuna_studies.db"
+            if not optuna_db.exists():
+                return {
+                    "status": "error",
+                    "message": "Optuna studies database not found. Train models first."
+                }
+            
+            # Build command - bind to 0.0.0.0 for Docker accessibility
+            cmd = self._get_optuna_cmd() + [f"sqlite:///{str(optuna_db)}", "--port", str(self.optuna_port), "--host", "0.0.0.0"]
+            logger.info(f"Starting Optuna with command: {cmd}")
+            
+            # Platform-specific process creation
+            kwargs = {
+                "cwd": str(project_root),
+                "stdout": subprocess.PIPE,
+                "stderr": subprocess.PIPE,
+            }
+            
+            if os.name == 'nt':
+                kwargs["creationflags"] = subprocess.CREATE_NO_WINDOW
+            else:
+                # On Unix, start new process group for proper cleanup
+                kwargs["start_new_session"] = True
+            
+            # Start Optuna Dashboard
+            self.optuna_process = subprocess.Popen(cmd, **kwargs)
+            
+            # Wait for startup
+            time.sleep(3)
+            
+            if self.is_port_in_use(self.optuna_port):
+                return {
+                    "status": "started",
+                    "port": self.optuna_port,
+                    "url": url,
+                    "message": "Optuna Dashboard started successfully"
+                }
+            else:
+                # Try to get error output
+                stderr = ""
+                if self.optuna_process.poll() is not None:
+                    _, stderr = self.optuna_process.communicate(timeout=1)
+                    stderr = stderr.decode('utf-8', errors='ignore') if stderr else ""
+                return {
+                    "status": "error",
+                    "message": f"Failed to start Optuna Dashboard. {stderr[:200] if stderr else ''}"
+                }
+                
+        except Exception as e:
+            logger.error(f"Optuna start error: {e}")
+            return {
+                "status": "error",
+                "message": f"Failed to start Optuna Dashboard: {str(e)}"
+            }
+    
+    def get_status(self, request_host: Optional[str] = None) -> Dict[str, Any]:
+        """Get status of both dashboards."""
+        mlflow_running = self.is_port_in_use(self.mlflow_port)
+        optuna_running = self.is_port_in_use(self.optuna_port)
+        
+        return {
+            "mlflow": {
+                "running": mlflow_running,
+                "port": self.mlflow_port,
+                "url": self._get_host_url(self.mlflow_port, request_host) if mlflow_running else None
+            },
+            "optuna": {
+                "running": optuna_running,
+                "port": self.optuna_port,
+                "url": self._get_host_url(self.optuna_port, request_host) if optuna_running else None
+            }
+        }
+    
+    def stop_mlflow(self) -> Dict[str, Any]:
+        """Stop MLflow UI server."""
+        if self.mlflow_process:
+            self._terminate_process(self.mlflow_process, "MLflow")
+            self.mlflow_process = None
+            return {"status": "stopped", "message": "MLflow UI stopped"}
+        return {"status": "not_running", "message": "MLflow UI was not running"}
+    
+    def stop_optuna(self) -> Dict[str, Any]:
+        """Stop Optuna Dashboard server."""
+        if self.optuna_process:
+            self._terminate_process(self.optuna_process, "Optuna")
+            self.optuna_process = None
+            return {"status": "stopped", "message": "Optuna Dashboard stopped"}
+        return {"status": "not_running", "message": "Optuna Dashboard was not running"}
+    
+    def stop_all(self) -> Dict[str, Any]:
+        """Stop all dashboard processes."""
+        mlflow_result = self.stop_mlflow()
+        optuna_result = self.stop_optuna()
+        return {
+            "mlflow": mlflow_result,
+            "optuna": optuna_result
+        }
+
+
+# Global dashboard manager
+_dashboard_manager: Optional[DashboardManager] = None
+
+def get_dashboard_manager() -> DashboardManager:
+    """Get or initialize the dashboard manager."""
+    global _dashboard_manager
+    if _dashboard_manager is None:
+        _dashboard_manager = DashboardManager()
+    return _dashboard_manager
 
 
 # ==================== EXCEPTION HANDLERS ====================
@@ -1164,6 +1483,141 @@ async def get_stored_forecasts(
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to retrieve forecasts: {str(e)}"
+        )
+
+
+# ==================== MLOPS DASHBOARD ENDPOINTS ====================
+
+@app.get(
+    "/api/dashboards/status",
+    tags=["Dashboards"],
+    summary="Get dashboard status"
+)
+async def get_dashboard_status(request: Request):
+    """
+    Get status of MLflow and Optuna dashboards.
+    
+    Returns whether each dashboard is running and their URLs.
+    URLs are dynamically generated based on the request host for Docker compatibility.
+    """
+    try:
+        manager = get_dashboard_manager()
+        request_host = request.headers.get("host", "localhost")
+        dashboard_status = manager.get_status(request_host)
+        return {
+            "success": True,
+            **dashboard_status
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to get dashboard status: {str(e)}"
+        )
+
+
+@app.post(
+    "/api/dashboards/mlflow/start",
+    tags=["Dashboards"],
+    summary="Start MLflow UI"
+)
+async def start_mlflow_dashboard(request: Request):
+    """
+    Start the MLflow UI server.
+    
+    Port can be configured via MLFLOW_PORT environment variable (default: 5000).
+    
+    MLflow UI provides:
+    - Experiment tracking
+    - Model metrics visualization
+    - Artifact management
+    - Run comparison
+    """
+    try:
+        manager = get_dashboard_manager()
+        request_host = request.headers.get("host", "localhost")
+        result = manager.start_mlflow(request_host)
+        return {
+            "success": result["status"] in ["started", "running"],
+            **result
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start MLflow UI: {str(e)}"
+        )
+
+
+@app.post(
+    "/api/dashboards/optuna/start",
+    tags=["Dashboards"],
+    summary="Start Optuna Dashboard"
+)
+async def start_optuna_dashboard(request: Request):
+    """
+    Start the Optuna Dashboard server.
+    
+    Port can be configured via OPTUNA_PORT environment variable (default: 8080).
+    
+    Optuna Dashboard provides:
+    - Hyperparameter optimization visualization
+    - Study history and progress
+    - Parameter importance analysis
+    - Optimization history plots
+    """
+    try:
+        manager = get_dashboard_manager()
+        request_host = request.headers.get("host", "localhost")
+        result = manager.start_optuna(request_host)
+        return {
+            "success": result["status"] in ["started", "running"],
+            **result
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to start Optuna Dashboard: {str(e)}"
+        )
+
+
+@app.post(
+    "/api/dashboards/mlflow/stop",
+    tags=["Dashboards"],
+    summary="Stop MLflow UI"
+)
+async def stop_mlflow_dashboard():
+    """Stop the MLflow UI server."""
+    try:
+        manager = get_dashboard_manager()
+        result = manager.stop_mlflow()
+        return {
+            "success": True,
+            **result
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to stop MLflow UI: {str(e)}"
+        )
+
+
+@app.post(
+    "/api/dashboards/optuna/stop",
+    tags=["Dashboards"],
+    summary="Stop Optuna Dashboard"
+)
+async def stop_optuna_dashboard():
+    """Stop the Optuna Dashboard server."""
+    try:
+        manager = get_dashboard_manager()
+        result = manager.stop_optuna()
+        return {
+            "success": True,
+            **result
+        }
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to stop Optuna Dashboard: {str(e)}"
         )
 
 

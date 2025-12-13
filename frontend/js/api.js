@@ -340,3 +340,133 @@ class APIClient {
 // Create global API client instance
 window.api = new APIClient();
 
+
+// ==================== DASHBOARD FUNCTIONS ====================
+
+/**
+ * Open MLflow Dashboard in a new tab
+ */
+async function openMLflowDashboard() {
+    const btn = document.getElementById('btnMLflow');
+    const originalText = btn.innerHTML;
+    
+    try {
+        // Show loading state
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Starting...';
+        
+        // Start MLflow dashboard
+        const response = await api.post('/api/dashboards/mlflow/start');
+        
+        if (response.success && response.url) {
+            // Open in new tab
+            const newWindow = window.open(response.url, '_blank');
+            
+            // Check if popup was blocked
+            if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+                Utils.showError('Popup blocked! Please allow popups for this site to open MLflow UI. URL: ' + response.url);
+            } else {
+                Utils.showSuccess('MLflow UI opened in new tab');
+            }
+        } else {
+            Utils.showError(response.message || 'Failed to start MLflow UI');
+        }
+    } catch (error) {
+        console.error('Failed to open MLflow dashboard:', error);
+        Utils.showError('Failed to start MLflow UI: ' + error.message);
+    } finally {
+        // Restore button
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+/**
+ * Open Optuna Dashboard in a new tab
+ */
+async function openOptunaDashboard() {
+    const btn = document.getElementById('btnOptuna');
+    const originalText = btn.innerHTML;
+    
+    try {
+        // Show loading state
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner-border spinner-border-sm me-1"></span>Starting...';
+        
+        // Start Optuna dashboard
+        const response = await api.post('/api/dashboards/optuna/start');
+        
+        if (response.success && response.url) {
+            // Open in new tab
+            const newWindow = window.open(response.url, '_blank');
+            
+            // Check if popup was blocked
+            if (!newWindow || newWindow.closed || typeof newWindow.closed === 'undefined') {
+                Utils.showError('Popup blocked! Please allow popups for this site to open Optuna Dashboard. URL: ' + response.url);
+            } else {
+                Utils.showSuccess('Optuna Dashboard opened in new tab');
+            }
+        } else {
+            Utils.showError(response.message || 'Failed to start Optuna Dashboard');
+        }
+    } catch (error) {
+        console.error('Failed to open Optuna dashboard:', error);
+        Utils.showError('Failed to start Optuna Dashboard: ' + error.message);
+    } finally {
+        // Restore button
+        btn.disabled = false;
+        btn.innerHTML = originalText;
+    }
+}
+
+/**
+ * Check dashboard status and update button states
+ */
+async function checkDashboardStatus() {
+    try {
+        const response = await api.get('/api/dashboards/status');
+        
+        if (response.success) {
+            // Update MLflow button
+            const mlflowBtn = document.getElementById('btnMLflow');
+            if (mlflowBtn) {
+                if (response.mlflow.running) {
+                    mlflowBtn.classList.remove('btn-outline-primary');
+                    mlflowBtn.classList.add('btn-primary');
+                    mlflowBtn.title = 'MLflow UI is running - Click to open';
+                } else {
+                    mlflowBtn.classList.remove('btn-primary');
+                    mlflowBtn.classList.add('btn-outline-primary');
+                    mlflowBtn.title = 'Click to start MLflow UI';
+                }
+            }
+            
+            // Update Optuna button
+            const optunaBtn = document.getElementById('btnOptuna');
+            if (optunaBtn) {
+                if (response.optuna.running) {
+                    optunaBtn.classList.remove('btn-outline-warning');
+                    optunaBtn.classList.add('btn-warning');
+                    optunaBtn.title = 'Optuna Dashboard is running - Click to open';
+                } else {
+                    optunaBtn.classList.remove('btn-warning');
+                    optunaBtn.classList.add('btn-outline-warning');
+                    optunaBtn.title = 'Click to start Optuna Dashboard';
+                }
+            }
+        }
+    } catch (error) {
+        console.log('Could not check dashboard status:', error.message);
+    }
+}
+
+// Export dashboard functions globally
+window.openMLflowDashboard = openMLflowDashboard;
+window.openOptunaDashboard = openOptunaDashboard;
+window.checkDashboardStatus = checkDashboardStatus;
+
+// Check dashboard status on page load
+$(document).ready(function() {
+    checkDashboardStatus();
+});
+

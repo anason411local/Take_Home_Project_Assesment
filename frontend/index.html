@@ -46,6 +46,13 @@
                     </li>
                 </ul>
                 <div class="d-flex align-items-center">
+                    <!-- MLOps Dashboard Buttons -->
+                    <button class="btn btn-sm btn-outline-primary me-2" id="btnMLflow" onclick="openMLflowDashboard()">
+                        <i class="bi bi-graph-up me-1"></i>MLOps Tracking
+                    </button>
+                    <button class="btn btn-sm btn-outline-warning me-2" id="btnOptuna" onclick="openOptunaDashboard()">
+                        <i class="bi bi-sliders me-1"></i>Optuna Studies
+                    </button>
                     <span class="badge bg-success me-2" id="connectionStatus">
                         <i class="bi bi-circle-fill me-1"></i> Connected
                     </span>
@@ -281,12 +288,23 @@
         </div>
     </footer>
 
-    <!-- Error Toast -->
+    <!-- Toast Container -->
     <div class="toast-container position-fixed bottom-0 end-0 p-3">
+        <!-- Error Toast -->
         <div id="errorToast" class="toast align-items-center text-bg-danger border-0" role="alert">
             <div class="d-flex">
                 <div class="toast-body" id="errorToastMessage">
                     An error occurred.
+                </div>
+                <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+            </div>
+        </div>
+        
+        <!-- Success Toast -->
+        <div id="successToast" class="toast align-items-center text-bg-success border-0" role="alert">
+            <div class="d-flex">
+                <div class="toast-body" id="successToastMessage">
+                    Operation completed successfully.
                 </div>
                 <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
             </div>
