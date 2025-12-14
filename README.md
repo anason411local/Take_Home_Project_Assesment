@@ -314,7 +314,7 @@ While LSTMs and GRUs are powerful for sequence modeling, they were intentionally
 
 -   **Data Size Constraints**: Deep learning models, especially LSTMs and GRUs, typically require a *very large amount* of sequential data (thousands to tens of thousands of data points or more) to learn complex temporal patterns effectively. Your dataset, with approximately 669 daily records (roughly 22 months), is **insufficient** for a GRU to generalize well and avoid severe overfitting.
 -   **Complexity vs. Benefit**: For the given data size and characteristics, the simpler, interpretable models (SARIMA, Prophet, XGBoost) offer excellent performance (as demonstrated by the low MAPE scores) with significantly less computational overhead and complexity in training, tuning, and deployment. The marginal (or non-existent) performance gains from deep learning models would not justify the added complexity.
--   **Training Time & Resources**: Training deep learning models is resource-intensive and time-consuming, especially without dedicated GPU hardware (though CUDA 12.9 is available, the primary constraint here is data volume). The current models provide quick and accurate forecasts.
+-   **Training Time & Resources**: Training deep learning models is resource-intensive and time-consuming, especially without dedicated GPU hardware ( the primary constraint here is data volume). The current models provide quick and accurate forecasts.
 
 ### 3. Hyperparameter Optimization with Optuna
 

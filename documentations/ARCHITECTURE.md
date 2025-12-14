@@ -34,6 +34,48 @@ The Sales Forecasting System is built as a modular, containerized application de
 │  └────────────────────────────────────────────────────────────────────────┘ │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
+```mermaid
+graph TD
+    User[End User] --> UI[Frontend Dashboard]
+
+    subgraph Frontend
+        UI
+    end
+
+    subgraph Backend
+        API[FastAPI REST API]
+        WS[WebSocket Server]
+    end
+
+    subgraph ML_System
+        FE[Feature Engineering]
+        Train[Model Training]
+        Eval[Model Evaluation]
+        Predict[Forecasting Engine]
+        Optuna[Optuna HPO]
+        MLflow[MLflow Tracking]
+    end
+
+    subgraph Storage
+        DB[(SQLite DB)]
+        Artifacts[(Model Artifacts)]
+    end
+
+    UI -->|HTTP| API
+    UI -->|WebSocket| WS
+
+    API --> FE
+    FE --> Train
+    Train --> Optuna
+    Train --> MLflow
+    Train --> Artifacts
+
+    Artifacts --> Predict
+    Predict --> API
+
+    API --> DB
+    MLflow --> DB
+```
 
 **Key Components:**
 
@@ -69,38 +111,24 @@ The Sales Forecasting System is built as a modular, containerized application de
 
 ```mermaid
 graph TD
-    A[Raw CSV Data] --> B{Data Ingestion & Preprocessing};
-    B --> C{Feature Engineering};
-    C --> D{Exploratory Data Analysis (EDA)};
-    D --> E[Split Data (Train/Test)];
-    E --> F{Model Training & Hyperparameter Optimization};
-    F --> G[MLflow Experiment Tracking];
-    F --> H[Optuna Study Management];
-    F --> I[Trained Models (.pkl)];
-    G --> J[MLflow UI];
-    H --> K[Optuna Dashboard];
-    I --> L{Model Evaluation & Selection};
-    L --> M[Best Model];
-    M --> N{Forecasting & Serving};
-    N --> O[FastAPI Frontend];
+    Start[Pipeline Start] --> Load[Load Dataset]
+    Load --> Validate[Schema Validation]
+    Validate --> FE[Feature Engineering]
+    FE --> Split[Train/Test Split]
 
-    subgraph ML Workflow
-        B; C; D; E; F; G; H; I; L; M; N;
-    end
+    Split --> HPO[Optuna Hyperparameter Search]
+    HPO --> Train[Train Best Model]
+    Train --> Eval[Model Evaluation]
 
-    style A fill:#ECEFF1,stroke:#607D8B,stroke-width:2px,color:#212121;
-    style B fill:#E3F2FD,stroke:#2196F3,stroke-width:2px,color:#212121;
-    style C fill:#E3F2FD,stroke:#2196F3,stroke-width:2px,color:#212121;
-    style D fill:#E3F2FD,stroke:#2196F3,stroke-width:2px,color:#212121;
-    style E fill:#E3F2FD,stroke:#2196F3,stroke-width:2px,color:#212121;
-    style F fill:#FFF3E0,stroke:#FF9800,stroke-width:2px,color:#212121;
-    style G fill:#FCE4EC,stroke:#E91E63,stroke-width:2px,color:#212121;
-    style H fill:#E8F5E9,stroke:#4CAF50,stroke-width:2px,color:#212121;
-    style I fill:#DCEDC8,stroke:#8BC34A,stroke-width:2px,color:#212121;
-    style L fill:#BBDEFB,stroke:#42A5F5,stroke-width:2px,color:#212121;
-    style M fill:#C8E6C9,stroke:#66BB6A,stroke-width:2px,color:#212121;
-    style N fill:#F0F4C3,stroke:#C0CA33,stroke-width:2px,color:#212121;
-    style O fill:#FFEBEE,stroke:#EF5350,stroke-width:2px,color:#212121;
+    Eval -->|Metrics| MLflow[MLflow Logging]
+    Train -->|Artifacts| MLflow
+
+    Eval --> Decision{Accept Model?}
+    Decision -->|Yes| Save[Persist Model]
+    Decision -->|No| Tune[Re-Tune Parameters]
+
+    Save --> Serve[Deploy for Forecasting]
+
 ```
 
 **Figure 1: Detailed ML Model Workflow**
@@ -125,71 +153,6 @@ This diagram illustrates the comprehensive flow of data and processes within the
 
 ---
 
-### B.1. Training Pipeline Architecture
-
-```mermaid
-graph TD
-    A[Start Training Pipeline (API Request)] --> B{PipelineManager};
-    B --> C{Log Stream (WebSocket)};
-    B --> D{Execute Step 1: Preprocessing & Feature Engineering};
-    D --> E{Log to File (logs/)} & F{Update DB (sales_data.db)};
-    D --> G{Check for Cancellation};
-    G -- No --> H{Execute Step 2: EDA};
-    H --> I{Log to File (logs/)} & J{Save Reports (reports/eda/)};
-    H --> K{Check for Cancellation};
-    K -- No --> L{Execute Step 3: Model Training & Optuna};
-    L --> M{Log to File (logs/)} & N{Update DB (results.db)};
-    L --> O{MLflow Tracking};
-    L --> P{Optuna Studies (optuna_studies.db)};
-    L --> Q{Save Models (models/saved/)};
-    L --> R{Check for Cancellation};
-    R -- No --> S[Pipeline Complete];
-    B -- Status Updates --> T[Frontend (Real-time Logs & Progress)];
-    T --> C;
-
-    style A fill:#FFFDE7,stroke:#FFC107,stroke-width:2px,color:#212121;
-    style B fill:#E0F7FA,stroke:#00BCD4,stroke-width:2px,color:#212121;
-    style C fill:#E0F2F7,stroke:#4DD0E1,stroke-width:1px,color:#212121;
-    style D fill:#C8E6C9,stroke:#4CAF50,stroke-width:2px,color:#212121;
-    style E fill:#F8F8F8,stroke:#BDBDBD,stroke-width:1px,color:#212121;
-    style F fill:#F8F8F8,stroke:#BDBDBD,stroke-width:1px,color:#212121;
-    style G fill:#FFEBEE,stroke:#F44336,stroke-width:1px,color:#212121;
-    style H fill:#E8F5E9,stroke:#4CAF50,stroke-width:2px,color:#212121;
-    style I fill:#F8F8F8,stroke:#BDBDBD,stroke-width:1px,color:#212121;
-    style J fill:#F8F8F8,stroke:#BDBDBD,stroke-width:1px,color:#212121;
-    style K fill:#FFEBEE,stroke:#F44336,stroke-width:1px,color:#212121;
-    style L fill:#FFECB3,stroke:#FF9800,stroke-width:2px,color:#212121;
-    style M fill:#F8F8F8,stroke:#BDBDBD,stroke-width:1px,color:#212121;
-    style N fill:#F8F8F8,stroke:#BDBDBD,stroke-width:1px,color:#212121;
-    style O fill:#FCE4EC,stroke:#E91E63,stroke-width:1px,color:#212121;
-    style P fill:#E8F5E9,stroke:#4CAF50,stroke-width:1px,color:#212121;
-    style Q fill:#DCEDC8,stroke:#8BC34A,stroke-width:1px,color:#212121;
-    style R fill:#FFEBEE,stroke:#F44336,stroke-width:1px,color:#212121;
-    style S fill:#DCEDC8,stroke:#8BC34A,stroke-width:2px,color:#212121;
-    style T fill:#E0F7FA,stroke:#00BCD4,stroke-width:2px,color:#212121;
-
-    linkStyle 0 stroke-width:2px,fill:none,stroke:#00BCD4;
-    linkStyle 1 stroke-width:1px,fill:none,stroke:#00BCD4;
-    linkStyle 2 stroke-width:1px,fill:none,stroke:#4CAF50;
-    linkStyle 3 stroke-width:1px,fill:none,stroke:#4CAF50;
-    linkStyle 4 stroke-width:1px,fill:none,stroke:#4CAF50;
-    linkStyle 5 stroke-width:1px,fill:none,stroke:#F44336;
-    linkStyle 6 stroke-width:1px,fill:none,stroke:#F44336;
-    linkStyle 7 stroke-width:1px,fill:none,stroke:#8BC34A;
-    linkStyle 8 stroke-width:1px,fill:none,stroke:#8BC34A;
-    linkStyle 9 stroke-width:1px,fill:none,stroke:#8BC34A;
-    linkStyle 10 stroke-width:1px,fill:none,stroke:#F44336;
-    linkStyle 11 stroke-width:1px,fill:none,stroke:#F44336;
-    linkStyle 12 stroke-width:1px,fill:none,stroke:#FF9800;
-    linkStyle 13 stroke-width:1px,fill:none,stroke:#FF9800;
-    linkStyle 14 stroke-width:1px,fill:none,stroke:#FF9800;
-    linkStyle 15 stroke-width:1px,fill:none,stroke:#FF9800;
-    linkStyle 16 stroke-width:1px,fill:none,stroke:#FF9800;
-    linkStyle 17 stroke-width:1px,fill:none,stroke:#FF9800;
-    linkStyle 18 stroke-width:1px,fill:none,stroke:#F44336;
-    linkStyle 19 stroke-width:1px,fill:none,stroke:#F44336;
-    linkStyle 20 stroke-width:2px,fill:none,stroke:#00BCD4;
-```
 
 **Figure 2: Real-time Training Pipeline Architecture**
 
