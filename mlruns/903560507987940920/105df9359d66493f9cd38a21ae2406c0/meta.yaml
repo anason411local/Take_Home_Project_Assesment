@@ -1,0 +1,14 @@
+artifact_uri: file:C:/Users/Rtx_5090/Desktop/Github/Take_Home_Project_Assesment_of_AI_Engineer/Take_Home_Project_Assesment/mlruns/903560507987940920/105df9359d66493f9cd38a21ae2406c0/artifacts
+end_time: 1765715844254
+entry_point_name: ''
+experiment_id: '903560507987940920'
+lifecycle_stage: active
+run_id: 105df9359d66493f9cd38a21ae2406c0
+run_name: random_forest_20251214_180606
+source_name: ''
+source_type: 4
+source_version: ''
+start_time: 1765715780183
+status: 3
+tags: []
+user_id: Rtx_5090

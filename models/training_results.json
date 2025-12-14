@@ -1,6 +1,6 @@
 {
   "linear_trend": {
-    "run_id": "linear_trend_20251214_142412",
+    "run_id": "linear_trend_20251214_180606",
     "train_mape": 154.6074573124214,
     "train_mae": 67856.55267804566,
     "train_rmse": 68099.02880604776,
@@ -17,11 +17,11 @@
       "lt_include_dow": true,
       "lt_regularization": 15.599452033620265
     },
-    "training_time": 1.497281789779663,
+    "training_time": 3.9719834327697754,
     "model_path": "models/saved/linear_trend.pkl"
   },
   "xgboost": {
-    "run_id": "xgboost_20251214_142414",
+    "run_id": "xgboost_20251214_180610",
     "train_mape": 102.72016000768056,
     "train_mae": 36074.22808119159,
     "train_rmse": 41654.5468712346,
@@ -42,16 +42,16 @@
       "xgb_subsample": 0.7216968971838151,
       "xgb_colsample_bytree": 0.8099025726528951
     },
-    "training_time": 9.106379747390747,
+    "training_time": 9.774155616760254,
     "model_path": "models/saved/xgboost.pkl"
   },
   "random_forest": {
-    "run_id": "random_forest_20251214_142423",
+    "run_id": "random_forest_20251214_180620",
     "train_mape": 100.82502085539018,
     "train_mae": 35623.765054759475,
     "train_rmse": 41014.687587101114,
-    "test_mape": 8.820481488333428,
-    "test_mae": 8956.020176464179,
+    "test_mape": 8.82048148833343,
+    "test_mae": 8956.02017646418,
     "test_rmse": 10610.726281552033,
     "train_start": "2023-01-01",
     "train_end": "2024-06-18",
@@ -66,11 +66,11 @@
       "rf_min_samples_leaf": 4,
       "rf_max_features": null
     },
-    "training_time": 60.683066606521606,
+    "training_time": 64.07321882247925,
     "model_path": "models/saved/random_forest.pkl"
   },
   "prophet": {
-    "run_id": "prophet_20251214_142524",
+    "run_id": "prophet_20251214_180724",
     "train_mape": 158.11100298430875,
     "train_mae": 69684.84304833462,
     "train_rmse": 69830.19819892476,
@@ -90,11 +90,11 @@
       "prophet_yearly": true,
       "prophet_weekly": false
     },
-    "training_time": 1.6355171203613281,
+    "training_time": 2.6235194206237793,
     "model_path": "models/saved/prophet.pkl"
   },
   "sarima": {
-    "run_id": "sarima_20251214_142525",
+    "run_id": "sarima_20251214_180726",
     "train_mape": 161.66548138509847,
     "train_mae": 71816.79261293093,
     "train_rmse": 72073.86279221506,
@@ -116,7 +116,7 @@
       "sarima_Q": 0,
       "sarima_trend": "t"
     },
-    "training_time": 3.4555788040161133,
+    "training_time": 3.6584067344665527,
     "model_path": "models/saved/sarima.pkl"
   }
 }

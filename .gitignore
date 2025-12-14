@@ -206,24 +206,7 @@ marimo/_static/
 marimo/_lsp/
 __marimo__/
 
-#Files_To_Ignore for MLflow and Logs
-mlruns/
-logs/
 
-# Database files
-*.db
-database/*.db
 
-# Models and Optuna
-models/
-models/optuna/
-models/saved/
-models/feature_importance/
-models/learning_curves/
 
-# Forecasts
-forecasts/
-
-# Reports (generated)
-reports/eda/
 
