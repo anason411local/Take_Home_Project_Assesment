@@ -8,6 +8,9 @@
 - [ML Model Workflow & MLOps](#ml-model-workflow--mlops)
 - [Models](#models)
 - [Evaluation Metrics](#evaluation-metrics)
+[Getting Started](#getting-started)
+  - [Method 1: Docker Hub (Recommended)](#method-1-docker-hub-recommended)
+  - [Method 2: Git Clone & Local Setup](#method-2-git-clone--local-setup)
 - [Installation](#installation)
 - [Quick Start (4-Step Pipeline)](#quick-start-4-step-pipeline)
   - [Step 1: Preprocess Data](#step-1-preprocess-data)
@@ -232,6 +235,39 @@ This project leverages a comprehensive set of technologies across different laye
 └── 📂 tests/                          # Unit tests
     └── test_data_pipeline.py
 ```
+## Docker Architecture
+
+The Sales Forecasting System runs as a containerized application with the following architecture:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           Docker Container                                   │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                      FastAPI (Port 8000)                               │ │
+│  │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────────────┐ │ │
+│  │  │   REST API      │  │   WebSocket     │  │   Static Files          │ │ │
+│  │  │   Endpoints     │  │   Streaming     │  │   (Frontend)            │ │ │
+│  │  └─────────────────┘  └─────────────────┘  └─────────────────────────┘ │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                    │                                         │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                   ML Pipeline & Services                               │ │
+│  │  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌──────────────────┐ │ │
+│  │  │  Training  │  │ Forecaster │  │   MLflow   │  │      Optuna      │ │ │
+│  │  │  Pipeline  │  │            │  │   (5000)   │  │      (8080)      │ │ │
+│  │  └────────────┘  └────────────┘  └────────────┘  └──────────────────┘ │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+│                                    │                                         │
+│  ┌────────────────────────────────────────────────────────────────────────┐ │
+│  │                Persistent Storage (Volumes)                            │ │
+│  │  ┌────────────┐  ┌────────────┐  ┌────────────┐  ┌──────────────────┐ │ │
+│  │  │ Databases  │  │   Models   │  │   MLruns   │  │      Logs        │ │ │
+│  │  │ (SQLite)   │  │   (.pkl)   │  │            │  │                  │ │ │
+│  │  └────────────┘  └────────────┘  └────────────┘  └──────────────────┘ │ │
+│  └────────────────────────────────────────────────────────────────────────┘ │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
 
 ## ML Model Workflow & MLOps
 
@@ -345,46 +381,238 @@ We prioritize Option 2 as the default because, for production forecasting, using
 
 ## Installation
 
-### 1. Create Environment
+## Getting Started
 
-It is recommended to create a dedicated Conda or UV environment with `python=3.12.9`:
+There are two methods to run the Sales Forecasting System.
 
+### Method 1: Docker Hub (Recommended)
+
+The fastest way to get started. Pull the pre-built Docker image and run instantly.
+
+#### Prerequisites
+
+- **Docker** (version 20.10 or higher)
+- **Docker Compose** (version 2.0 or higher)
+
+```bash
+docker --version
+docker-compose --version
+```
+
+#### Step 1: Create Docker Compose File
+
+Create a file named `docker-compose.yml` (or use the provided `docker_compose_up.yml`):
+
+```yaml
+version: '3.8'
+
+services:
+  sales-forecast:
+    image: anasaloor/sales-forecast:latest
+    container_name: sales-forecast-app
+    restart: unless-stopped
+    ports:
+      - "8000:8000"   # FastAPI Application
+      - "5000:5000"   # MLflow UI
+      - "8080:8080"   # Optuna Dashboard
+    environment:
+      - APP_HOST=0.0.0.0
+      - APP_PORT=8000
+      - PYTHONUNBUFFERED=1
+      - MLFLOW_TRACKING_URI=file:///app/mlruns
+      - AUTO_START_DASHBOARDS=true
+      - TZ=UTC
+    volumes:
+      - sales_databases:/app/database
+      - sales_models:/app/models
+      - sales_mlruns:/app/mlruns
+      - sales_reports:/app/reports
+      - sales_logs:/app/logs
+      - sales_forecasts:/app/forecasts
+      - sales_data:/app/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '2'
+          memory: 2G
+        reservations:
+          cpus: '1'
+          memory: 1G
+
+volumes:
+  sales_databases:
+    name: sales_forecast_databases
+  sales_models:
+    name: sales_forecast_models
+  sales_mlruns:
+    name: sales_forecast_mlruns
+  sales_reports:
+    name: sales_forecast_reports
+  sales_logs:
+    name: sales_forecast_logs
+  sales_forecasts:
+    name: sales_forecast_forecasts
+  sales_data:
+    name: sales_forecast_data
+```
+
+#### Step 2: Pull and Run
+
+```bash
+# Pull the latest image
+docker-compose pull
+
+# Run in background (detached mode)
+docker-compose up -d
+
+# Or run in foreground to see logs
+docker-compose up
+```
+
+#### Step 3: Access the Application
+
+| Service | URL | Description |
+|---------|-----|-------------|
+| **Web Dashboard** | http://localhost:8000/app/ | Main application interface |
+| **API Docs (Swagger)** | http://localhost:8000/docs | Interactive API documentation |
+| **API Docs (ReDoc)** | http://localhost:8000/redoc | Alternative API documentation |
+| **MLflow UI** | http://localhost:5000 | Experiment tracking |
+| **Optuna Dashboard** | http://localhost:8080 | Hyperparameter optimization |
+
+#### Docker Management Commands
+
+```bash
+# View logs
+docker-compose logs -f
+
+# Stop the application
+docker-compose stop
+
+# Stop and remove containers
+docker-compose down
+
+# Stop and remove containers + volumes (resets all data!)
+docker-compose down -v
+
+# Restart the application
+docker-compose restart
+
+# Enter container shell
+docker-compose exec sales-forecast bash
+```
+
+---
+
+### Method 2: Git Clone & Local Setup
+
+For development or customization, clone the repository and run locally.
+
+#### Prerequisites
+
+- **Python 3.12.9** (recommended)
+- **Conda** or **UV** for environment management
+- **Git**
+
+#### Step 1: Create Environment
+
+Using Conda:
 ```bash
 conda create -name sales_forecast python=3.12.9
 conda activate sales_forecast
 ```
 
-Alternatively, using `uv`:
-
+Or using UV:
 ```bash
 uv venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 ```
 
-### 2. Clone Git Repo
+#### Step 2: Clone Repository
 
+```bash
 git clone https://github.com/anason411local/Take_Home_Project_Assesment.git
+cd Take_Home_Project_Assesment
+```
 
-
-### 3. Install Dependencies
-
-Install all required Python packages:
+#### Step 3: Install Dependencies
 
 ```bash
 pip install -r requirements.txt
 ```
 
+#### Step 4: Run the Pipeline
+
+Follow the Quick Start (4-Step Pipeline) section below.
+
+#### Step 5: Start the Web Application
+
+```bash
+python app.py
+```
+
+---
+
 ## Quick Start (4-Step Pipeline)
 
-Follow these steps to run the entire sales forecasting pipeline from data preprocessing to generating forecasts:
-
 ### Step 1: Preprocess Data
-
-This step handles data validation, cleaning, and feature engineering. It prompts you for a CSV file and imports it into the `database/sales_data.db`.
 
 ```bash
 python step_1_run_pipeline.py
 ```
+
+### Step 2: Run EDA (Exploratory Data Analysis)
+
+```bash
+python step_2_eda_analysis.py
+```
+
+### Step 3: Train Models
+
+```bash
+# Default - Train final model on ALL data after validation
+python step_3_train_models.py
+
+# Train with more optimization trials
+python step_3_train_models.py --trials 20
+
+# Train specific models only
+python step_3_train_models.py --models prophet xgboost
+```
+
+### Step 4: Generate Forecasts
+
+```bash
+# Forecast 30 days with all models
+python step_4_forecast.py --days 30
+
+# Forecast 60 days with a specific model
+python step_4_forecast.py --days 60 --model prophet
+```
+
+## Run the Web Application (API + Frontend)
+
+```bash
+python app.py
+```
+
+### Command Line Options
+
+-   `--host <ip_address>`: Specify host (default: 127.0.0.1)
+-   `--port <port_number>`: Specify port (default: 8000)
+-   `--reload`: Enable auto-reload for development
+-   `--no-browser`: Prevent automatic browser opening
+
+## API Documentation
+
+-   **Swagger UI**: http://127.0.0.1:8000/docs
+-   **ReDoc**: http://127.0.0.1:8000/redoc
+
 
 ### Feature Engineering Details
 
@@ -842,4 +1070,4 @@ MIT License
 
 ## Author
 
-AI Engineer Assessment Project
+Anas Aloor
