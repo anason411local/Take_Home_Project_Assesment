@@ -267,12 +267,26 @@ class ModelTrainer:
             except Exception as e:
                 return float('inf')
         
+        # Storage path for Optuna
+        storage_path = "sqlite:///models/optuna/optuna_studies.db"
+        
+        # Delete old studies for this model type to avoid accumulation
+        try:
+            existing_studies = optuna.study.get_all_study_names(storage=storage_path)
+            for old_study_name in existing_studies:
+                if old_study_name.startswith(f"{model_name}_"):
+                    optuna.delete_study(study_name=old_study_name, storage=storage_path)
+                    print(f"  Deleted old study: {old_study_name}")
+        except Exception as e:
+            # Storage might not exist yet, which is fine
+            pass
+        
         # Create Optuna study with unique name
         study = optuna.create_study(
             study_name=study_name,
             direction="minimize",
             sampler=TPESampler(seed=42),
-            storage=f"sqlite:///models/optuna/optuna_studies.db",
+            storage=storage_path,
             load_if_exists=False  # Always create new study
         )
         

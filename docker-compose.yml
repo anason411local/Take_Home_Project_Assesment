@@ -63,6 +63,8 @@ services:
       - PYTHONUNBUFFERED=1
       - MLFLOW_TRACKING_URI=file:///app/mlruns
       - OPTUNA_DB_PATH=/app/models/optuna/optuna_studies.db
+      # Auto-start MLflow and Optuna dashboards on container startup
+      - AUTO_START_DASHBOARDS=true
       # Add timezone if needed
       - TZ=UTC
     

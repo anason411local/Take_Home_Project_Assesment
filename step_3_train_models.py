@@ -95,6 +95,11 @@ def parse_args():
         action='store_true',
         help='Use holdout test set (Option 1). Default is Option 2: train on all data'
     )
+    parser.add_argument(
+        '--clean-optuna',
+        action='store_true',
+        help='Delete all existing Optuna studies before training (fresh start)'
+    )
     return parser.parse_args()
 
 
@@ -140,6 +145,24 @@ def main():
         print(f"\nLog saved to: {terminal_logger.get_log_path()}")
 
 
+def clean_optuna_studies():
+    """Delete all existing Optuna studies from the database."""
+    import os
+    optuna_db_path = Path("models/optuna/optuna_studies.db")
+    
+    if optuna_db_path.exists():
+        try:
+            os.remove(optuna_db_path)
+            print(f"✓ Deleted existing Optuna database: {optuna_db_path}")
+        except Exception as e:
+            print(f"⚠ Could not delete Optuna database: {e}")
+    else:
+        print(f"ℹ No existing Optuna database found at: {optuna_db_path}")
+    
+    # Ensure the directory exists for new studies
+    optuna_db_path.parent.mkdir(parents=True, exist_ok=True)
+
+
 def _run_training(args, terminal_logger):
     """Internal training execution."""
     
@@ -148,6 +171,11 @@ def _run_training(args, terminal_logger):
     print("="*70)
     print(f"Log file: {terminal_logger.get_log_path()}")
     print(f"Data source: {args.source}")
+    
+    # Clean Optuna studies if requested
+    if args.clean_optuna:
+        print("\n🧹 Cleaning existing Optuna studies...")
+        clean_optuna_studies()
     
     # Load data
     print(f"\nLoading data...")

@@ -119,6 +119,54 @@ if frontend_dir.exists():
 
 # ==================== LIFECYCLE EVENTS ====================
 
+# Environment variable to control auto-start of dashboards (default: True in Docker)
+AUTO_START_DASHBOARDS = os.environ.get("AUTO_START_DASHBOARDS", "true").lower() in ("true", "1", "yes")
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Initialize application and auto-start dashboards if configured."""
+    logger.info("Application starting up...")
+    
+    if AUTO_START_DASHBOARDS:
+        logger.info("Auto-starting MLflow and Optuna dashboards in background...")
+        # Start dashboards in a background task to not block app startup
+        import asyncio
+        asyncio.create_task(_start_dashboards_background())
+    else:
+        logger.info("Dashboard auto-start disabled (set AUTO_START_DASHBOARDS=true to enable)")
+
+
+async def _start_dashboards_background():
+    """Background task to start dashboards after app is fully started."""
+    import asyncio
+    
+    # Wait for app to be fully ready
+    await asyncio.sleep(5)
+    
+    try:
+        manager = get_dashboard_manager()
+        
+        # Start MLflow
+        logger.info("Starting MLflow UI...")
+        mlflow_result = manager.start_mlflow("localhost")
+        if mlflow_result["status"] in ["started", "running"]:
+            logger.info(f"✓ MLflow UI: {mlflow_result.get('message', 'Started')} - http://localhost:{manager.mlflow_port}")
+        else:
+            logger.warning(f"✗ MLflow UI: {mlflow_result.get('message', 'Failed to start')}")
+        
+        # Start Optuna
+        logger.info("Starting Optuna Dashboard...")
+        optuna_result = manager.start_optuna("localhost")
+        if optuna_result["status"] in ["started", "running"]:
+            logger.info(f"✓ Optuna Dashboard: {optuna_result.get('message', 'Started')} - http://localhost:{manager.optuna_port}")
+        else:
+            logger.warning(f"✗ Optuna Dashboard: {optuna_result.get('message', 'Failed to start')}")
+            
+    except Exception as e:
+        logger.error(f"Error auto-starting dashboards: {e}")
+
+
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean up dashboard processes on application shutdown."""
@@ -261,6 +309,11 @@ class DashboardManager:
             mlflow_exe = self.scripts_dir / "mlflow.exe"
             if mlflow_exe.exists():
                 return [str(mlflow_exe)]
+        else:
+            # On Linux/Mac, use the executable directly from scripts_dir
+            mlflow_exe = self.scripts_dir / "mlflow"
+            if mlflow_exe.exists():
+                return [str(mlflow_exe)]
         # Fallback to using python -m mlflow
         return [self.python_exe, "-m", "mlflow"]
     
@@ -270,7 +323,13 @@ class DashboardManager:
             optuna_exe = self.scripts_dir / "optuna-dashboard.exe"
             if optuna_exe.exists():
                 return [str(optuna_exe)]
-        # Fallback to using python -m optuna_dashboard
+        else:
+            # On Linux/Mac, use the executable directly from scripts_dir
+            # Note: optuna_dashboard cannot be run with python -m
+            optuna_exe = self.scripts_dir / "optuna-dashboard"
+            if optuna_exe.exists():
+                return [str(optuna_exe)]
+        # Fallback - this may not work for optuna-dashboard
         return [self.python_exe, "-m", "optuna_dashboard"]
     
     def start_mlflow(self, request_host: Optional[str] = None) -> Dict[str, Any]:
@@ -313,26 +372,33 @@ class DashboardManager:
             # Start MLflow UI
             self.mlflow_process = subprocess.Popen(cmd, **kwargs)
             
-            # Wait for startup
-            time.sleep(3)
-            
-            if self.is_port_in_use(self.mlflow_port):
-                return {
-                    "status": "started",
-                    "port": self.mlflow_port,
-                    "url": url,
-                    "message": "MLflow UI started successfully"
-                }
-            else:
-                # Try to get error output
-                stderr = ""
+            # Wait for startup with retries
+            max_retries = 10
+            for i in range(max_retries):
+                time.sleep(1)
+                if self.is_port_in_use(self.mlflow_port):
+                    return {
+                        "status": "started",
+                        "port": self.mlflow_port,
+                        "url": url,
+                        "message": "MLflow UI started successfully"
+                    }
+                # Check if process died
                 if self.mlflow_process.poll() is not None:
-                    _, stderr = self.mlflow_process.communicate(timeout=1)
-                    stderr = stderr.decode('utf-8', errors='ignore') if stderr else ""
-                return {
-                    "status": "error",
-                    "message": f"Failed to start MLflow UI. {stderr[:200] if stderr else ''}"
-                }
+                    break
+            
+            # If we get here, startup failed
+            stderr = ""
+            if self.mlflow_process.poll() is not None:
+                try:
+                    _, stderr_bytes = self.mlflow_process.communicate(timeout=1)
+                    stderr = stderr_bytes.decode('utf-8', errors='ignore') if stderr_bytes else ""
+                except:
+                    pass
+            return {
+                "status": "error",
+                "message": f"Failed to start MLflow UI. {stderr[:200] if stderr else 'Process may still be starting...'}"
+            }
                 
         except Exception as e:
             logger.error(f"MLflow start error: {e}")
@@ -381,26 +447,33 @@ class DashboardManager:
             # Start Optuna Dashboard
             self.optuna_process = subprocess.Popen(cmd, **kwargs)
             
-            # Wait for startup
-            time.sleep(3)
-            
-            if self.is_port_in_use(self.optuna_port):
-                return {
-                    "status": "started",
-                    "port": self.optuna_port,
-                    "url": url,
-                    "message": "Optuna Dashboard started successfully"
-                }
-            else:
-                # Try to get error output
-                stderr = ""
+            # Wait for startup with retries
+            max_retries = 10
+            for i in range(max_retries):
+                time.sleep(1)
+                if self.is_port_in_use(self.optuna_port):
+                    return {
+                        "status": "started",
+                        "port": self.optuna_port,
+                        "url": url,
+                        "message": "Optuna Dashboard started successfully"
+                    }
+                # Check if process died
                 if self.optuna_process.poll() is not None:
-                    _, stderr = self.optuna_process.communicate(timeout=1)
-                    stderr = stderr.decode('utf-8', errors='ignore') if stderr else ""
-                return {
-                    "status": "error",
-                    "message": f"Failed to start Optuna Dashboard. {stderr[:200] if stderr else ''}"
-                }
+                    break
+            
+            # If we get here, startup failed
+            stderr = ""
+            if self.optuna_process.poll() is not None:
+                try:
+                    _, stderr_bytes = self.optuna_process.communicate(timeout=1)
+                    stderr = stderr_bytes.decode('utf-8', errors='ignore') if stderr_bytes else ""
+                except:
+                    pass
+            return {
+                "status": "error",
+                "message": f"Failed to start Optuna Dashboard. {stderr[:200] if stderr else 'Process may still be starting...'}"
+            }
                 
         except Exception as e:
             logger.error(f"Optuna start error: {e}")

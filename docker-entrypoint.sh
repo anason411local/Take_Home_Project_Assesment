@@ -58,7 +58,9 @@ echo -e "${BLUE}[INFO]${NC} Checking trained models..."
 MODEL_COUNT=$(find /app/models/saved -name "*.pkl" 2>/dev/null | wc -l)
 if [ "$MODEL_COUNT" -gt 0 ]; then
     echo -e "${GREEN}[OK]${NC} Found $MODEL_COUNT trained model(s):"
-    ls -la /app/models/saved/*.pkl 2>/dev/null | awk '{print "     - " $NF}' | xargs -I {} basename {}
+    find /app/models/saved -name "*.pkl" 2>/dev/null | while read -r file; do
+        echo "     - $(basename "$file")"
+    done
 else
     echo -e "${YELLOW}[WARN]${NC} No trained models found"
     echo "     Run the training pipeline from the web interface to train models"

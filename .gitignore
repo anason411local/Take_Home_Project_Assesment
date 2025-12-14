@@ -210,3 +210,20 @@ __marimo__/
 mlruns/
 logs/
 
+# Database files
+*.db
+database/*.db
+
+# Models and Optuna
+models/
+models/optuna/
+models/saved/
+models/feature_importance/
+models/learning_curves/
+
+# Forecasts
+forecasts/
+
+# Reports (generated)
+reports/eda/
+

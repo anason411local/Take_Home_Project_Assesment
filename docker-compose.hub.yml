@@ -55,6 +55,7 @@ services:
       - APP_PORT=8000
       - PYTHONUNBUFFERED=1
       - MLFLOW_TRACKING_URI=file:///app/mlruns
+      - AUTO_START_DASHBOARDS=true
       - TZ=UTC
     
     # Volume mounts for persistent data
