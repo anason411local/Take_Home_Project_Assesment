@@ -284,6 +284,64 @@ This section details the machine learning model training and operational workflo
 │   & Serving     │    │  Selection      │    │  (Optuna+MLflow)│
 └─────────────────┘    └─────────────────┘    └─────────────────┘
 ```
+## ML ML Pipeline Workflow
+
+```mermaid
+graph TD
+    Start[Pipeline Start] --> Load[Load Dataset]
+    Load --> Validate[Schema Validation]
+    Validate --> FE[Feature Engineering]
+    FE --> Split[Train/Test Split]
+
+    Split --> HPO[Optuna Hyperparameter Search]
+    HPO --> Train[Train Best Model]
+    Train --> Eval[Model Evaluation]
+
+    Eval -->|Metrics| MLflow[MLflow Logging]
+    Train -->|Artifacts| MLflow
+
+    Eval --> Decision{Accept Model?}
+    Decision -->|Yes| Save[Persist Model]
+    Decision -->|No| Tune[Re-Tune Parameters]
+
+    Save --> Serve[Deploy for Forecasting]
+
+```
+
+## Sequence Diagrams
+
+
+```mermaid
+sequenceDiagram
+    participant U as User
+    participant UI as Frontend
+    participant API as FastAPI
+    participant ML as Forecast Engine
+    participant DB as Database
+
+    U ->> UI: Enter forecast request
+    UI ->> API: HTTP POST /forecast
+    API ->> ML: Run prediction
+    ML ->> DB: Fetch model
+    ML -->> API: Forecast result
+    API -->> UI: JSON response
+
+```
+
+## WebSocket Live Updates
+
+
+```mermaid
+sequenceDiagram
+    participant UI as Frontend
+    participant WS as WebSocket Server
+    participant ML as Training Pipeline
+
+    UI ->> WS: Connect
+    ML ->> WS: Training progress
+    WS -->> UI: Live updates
+
+```
 
 
 ### 1. Overall ML Workflow
