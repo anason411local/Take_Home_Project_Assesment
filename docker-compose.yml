@@ -1,30 +1,27 @@
 # =============================================================================
-# Sales Forecasting System - Docker Compose Configuration
+# Sales Forecasting System - Docker Compose (Docker Hub Image)
 # =============================================================================
 #
-# This file defines the complete application stack for running the
-# Sales Forecasting System in Docker containers.
+# USE THIS FILE when pulling the pre-built image from Docker Hub.
+# 
+# This configuration pulls the image from Docker Hub instead of building locally.
 #
 # USAGE:
 # ------
-# Start the application:
-#   docker-compose up
+# Pull and start the application:
+#   docker-compose -f docker-compose.yml up
 #
 # Start in background:
-#   docker-compose up -d
+#   docker-compose -f docker-compose.yml up -d
 #
 # Stop the application:
-#   docker-compose down
+#   docker-compose -f docker-compose.yml down
 #
 # View logs:
-#   docker-compose logs -f
+#   docker-compose -f docker-compose.yml logs -f
 #
-# Rebuild after changes:
-#   docker-compose up --build
-#
-# Pull latest image from Docker Hub:
-#   docker-compose pull
-#   docker-compose up
+# Pull latest image:
+#   docker-compose -f docker-compose.yml pull
 #
 # =============================================================================
 
@@ -32,17 +29,14 @@ version: '3.8'
 
 services:
   # ===========================================================================
-  # Main Application Service
+  # Main Application Service (from Docker Hub)
   # ===========================================================================
   sales-forecast:
-    # To use pre-built image from Docker Hub, uncomment the following line
-    # and comment out the 'build' section:
-    # image: YOUR_DOCKERHUB_USERNAME/sales-forecast:latest
-    
-    # Build from local Dockerfile
-    build:
-      context: .
-      dockerfile: Dockerfile
+    # =========================================================================
+    # IMPORTANT: Replace YOUR_DOCKERHUB_USERNAME with your actual Docker Hub
+    # username after pushing the image
+    # =========================================================================
+    image: anasaloor/sales-forecast:latest
     
     container_name: sales-forecast-app
     
@@ -50,11 +44,10 @@ services:
     restart: unless-stopped
     
     # Port mappings
-    # Format: HOST:CONTAINER
     ports:
       - "8000:8000"   # FastAPI Application
-      - "5000:5000"   # MLflow UI (optional)
-      - "8080:8080"   # Optuna Dashboard (optional)
+      - "5000:5000"   # MLflow UI
+      - "8080:8080"   # Optuna Dashboard
     
     # Environment variables
     environment:
@@ -62,36 +55,19 @@ services:
       - APP_PORT=8000
       - PYTHONUNBUFFERED=1
       - MLFLOW_TRACKING_URI=file:///app/mlruns
-      - OPTUNA_DB_PATH=/app/models/optuna/optuna_studies.db
-      # Auto-start MLflow and Optuna dashboards on container startup
       - AUTO_START_DASHBOARDS=true
-      # Add timezone if needed
       - TZ=UTC
     
     # Volume mounts for persistent data
-    # This ensures data survives container restarts
     volumes:
-      # Databases - persist training results and sales data
       - sales_databases:/app/database
-      
-      # Trained models - persist model files
       - sales_models:/app/models
-      
-      # MLflow tracking - persist experiment data
       - sales_mlruns:/app/mlruns
-      
-      # Reports - persist EDA reports and visualizations
       - sales_reports:/app/reports
-      
-      # Logs - persist application logs
       - sales_logs:/app/logs
-      
-      # Forecasts - persist generated forecasts
       - sales_forecasts:/app/forecasts
-      
-      # Data uploads - persist uploaded CSV files
       - sales_data:/app/data
-
+    
     # Health check
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
@@ -100,63 +76,37 @@ services:
       retries: 3
       start_period: 10s
     
-    # Resource limits (adjust based on your system)
+    # Resource limits
     deploy:
       resources:
         limits:
-          cpus: '4'
-          memory: 4G
+          cpus: '2'
+          memory: 2G
         reservations:
           cpus: '1'
           memory: 1G
     
-    # Logging configuration
+    # Logging
     logging:
       driver: "json-file"
       options:
         max-size: "10m"
         max-file: "3"
 
-# =============================================================================
-# Named Volumes for Data Persistence
-# =============================================================================
-# These volumes persist data even when containers are removed.
-# To completely reset, use: docker-compose down -v
-# =============================================================================
-
+# Named Volumes
 volumes:
   sales_databases:
-    driver: local
     name: sales_forecast_databases
-  
   sales_models:
-    driver: local
     name: sales_forecast_models
-  
   sales_mlruns:
-    driver: local
     name: sales_forecast_mlruns
-  
   sales_reports:
-    driver: local
     name: sales_forecast_reports
-  
   sales_logs:
-    driver: local
     name: sales_forecast_logs
-  
   sales_forecasts:
-    driver: local
     name: sales_forecast_forecasts
-  
   sales_data:
-    driver: local
     name: sales_forecast_data
-
-# =============================================================================
-# Networks (optional - uncomment if needed)
-# =============================================================================
-# networks:
-#   sales_network:
-#     driver: bridge
 
