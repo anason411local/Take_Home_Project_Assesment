@@ -1,0 +1,111 @@
+# =============================================================================
+# Sales Forecasting System - Docker Compose (Docker Hub Image)
+# =============================================================================
+#
+# USE THIS FILE when pulling the pre-built image from Docker Hub.
+# 
+# This configuration pulls the image from Docker Hub instead of building locally.
+#
+# USAGE:
+# ------
+# Pull and start the application:
+#   docker-compose -f docker-compose.hub.yml up
+#
+# Start in background:
+#   docker-compose -f docker-compose.hub.yml up -d
+#
+# Stop the application:
+#   docker-compose -f docker-compose.hub.yml down
+#
+# View logs:
+#   docker-compose -f docker-compose.hub.yml logs -f
+#
+# Pull latest image:
+#   docker-compose -f docker-compose.hub.yml pull
+#
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ===========================================================================
+  # Main Application Service (from Docker Hub)
+  # ===========================================================================
+  sales-forecast:
+    # =========================================================================
+    # IMPORTANT: Replace YOUR_DOCKERHUB_USERNAME with your actual Docker Hub
+    # username after pushing the image
+    # =========================================================================
+    image: anasaloor/sales-forecast:latest
+    
+    container_name: sales-forecast-app
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Port mappings
+    ports:
+      - "8000:8000"   # FastAPI Application
+      - "5000:5000"   # MLflow UI
+      - "8080:8080"   # Optuna Dashboard
+    
+    # Environment variables
+    environment:
+      - APP_HOST=0.0.0.0
+      - APP_PORT=8000
+      - PYTHONUNBUFFERED=1
+      - MLFLOW_TRACKING_URI=file:///app/mlruns
+      - TZ=UTC
+    
+    # Volume mounts for persistent data
+    volumes:
+      - sales_databases:/app/database
+      - sales_models:/app/models
+      - sales_mlruns:/app/mlruns
+      - sales_reports:/app/reports
+      - sales_logs:/app/logs
+      - sales_forecasts:/app/forecasts
+      - sales_data:/app/data
+    
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # Resource limits
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    
+    # Logging
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# Named Volumes
+volumes:
+  sales_databases:
+    name: sales_forecast_databases
+  sales_models:
+    name: sales_forecast_models
+  sales_mlruns:
+    name: sales_forecast_mlruns
+  sales_reports:
+    name: sales_forecast_reports
+  sales_logs:
+    name: sales_forecast_logs
+  sales_forecasts:
+    name: sales_forecast_forecasts
+  sales_data:
+    name: sales_forecast_data
+

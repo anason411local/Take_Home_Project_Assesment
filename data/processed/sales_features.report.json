@@ -1,0 +1,66 @@
+{
+  "pipeline_summary": {
+    "initial_rows": 669,
+    "final_rows": 662,
+    "rows_removed": 7
+  },
+  "validation": {
+    "is_valid": true,
+    "errors": [],
+    "warnings": [],
+    "statistics": {
+      "total_rows": 669,
+      "total_columns": 6,
+      "memory_mb": 0.09464168548583984,
+      "sales": {
+        "mean": 62424.334828101644,
+        "std": 25727.16867330349,
+        "min": 15234.0,
+        "max": 112789.0,
+        "median": 63456.0
+      },
+      "date_range": {
+        "start": "2023-01-01",
+        "end": "2024-10-30",
+        "days": 669
+      }
+    }
+  },
+  "features": {
+    "total_features": 15,
+    "feature_names": [
+      "day_of_week_num",
+      "month",
+      "quarter",
+      "day_of_year",
+      "is_weekend",
+      "day_of_week_sin",
+      "day_of_week_cos",
+      "daily_sales_lag_1",
+      "daily_sales_lag_7",
+      "daily_sales_diff_1",
+      "daily_sales_rolling_mean_7",
+      "daily_sales_rolling_std_7",
+      "marketing_spend_rolling_mean_7",
+      "days_since_start",
+      "time_normalized"
+    ],
+    "missing_values": {
+      "day_of_week_num": 0,
+      "month": 0,
+      "quarter": 0,
+      "day_of_year": 0,
+      "is_weekend": 0,
+      "day_of_week_sin": 0,
+      "day_of_week_cos": 0,
+      "daily_sales_lag_1": 1,
+      "daily_sales_lag_7": 7,
+      "daily_sales_diff_1": 1,
+      "daily_sales_rolling_mean_7": 1,
+      "daily_sales_rolling_std_7": 2,
+      "marketing_spend_rolling_mean_7": 1,
+      "days_since_start": 0,
+      "time_normalized": 0
+    }
+  }
+}

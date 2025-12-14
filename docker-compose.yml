@@ -1,0 +1,160 @@
+# =============================================================================
+# Sales Forecasting System - Docker Compose Configuration
+# =============================================================================
+#
+# This file defines the complete application stack for running the
+# Sales Forecasting System in Docker containers.
+#
+# USAGE:
+# ------
+# Start the application:
+#   docker-compose up
+#
+# Start in background:
+#   docker-compose up -d
+#
+# Stop the application:
+#   docker-compose down
+#
+# View logs:
+#   docker-compose logs -f
+#
+# Rebuild after changes:
+#   docker-compose up --build
+#
+# Pull latest image from Docker Hub:
+#   docker-compose pull
+#   docker-compose up
+#
+# =============================================================================
+
+version: '3.8'
+
+services:
+  # ===========================================================================
+  # Main Application Service
+  # ===========================================================================
+  sales-forecast:
+    # To use pre-built image from Docker Hub, uncomment the following line
+    # and comment out the 'build' section:
+    # image: YOUR_DOCKERHUB_USERNAME/sales-forecast:latest
+    
+    # Build from local Dockerfile
+    build:
+      context: .
+      dockerfile: Dockerfile
+    
+    container_name: sales-forecast-app
+    
+    # Restart policy
+    restart: unless-stopped
+    
+    # Port mappings
+    # Format: HOST:CONTAINER
+    ports:
+      - "8000:8000"   # FastAPI Application
+      - "5000:5000"   # MLflow UI (optional)
+      - "8080:8080"   # Optuna Dashboard (optional)
+    
+    # Environment variables
+    environment:
+      - APP_HOST=0.0.0.0
+      - APP_PORT=8000
+      - PYTHONUNBUFFERED=1
+      - MLFLOW_TRACKING_URI=file:///app/mlruns
+      - OPTUNA_DB_PATH=/app/models/optuna/optuna_studies.db
+      # Add timezone if needed
+      - TZ=UTC
+    
+    # Volume mounts for persistent data
+    # This ensures data survives container restarts
+    volumes:
+      # Databases - persist training results and sales data
+      - sales_databases:/app/database
+      
+      # Trained models - persist model files
+      - sales_models:/app/models
+      
+      # MLflow tracking - persist experiment data
+      - sales_mlruns:/app/mlruns
+      
+      # Reports - persist EDA reports and visualizations
+      - sales_reports:/app/reports
+      
+      # Logs - persist application logs
+      - sales_logs:/app/logs
+      
+      # Forecasts - persist generated forecasts
+      - sales_forecasts:/app/forecasts
+      
+      # Data uploads - persist uploaded CSV files
+      - sales_data:/app/data
+
+    # Health check
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    
+    # Resource limits (adjust based on your system)
+    deploy:
+      resources:
+        limits:
+          cpus: '4'
+          memory: 4G
+        reservations:
+          cpus: '1'
+          memory: 1G
+    
+    # Logging configuration
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+# =============================================================================
+# Named Volumes for Data Persistence
+# =============================================================================
+# These volumes persist data even when containers are removed.
+# To completely reset, use: docker-compose down -v
+# =============================================================================
+
+volumes:
+  sales_databases:
+    driver: local
+    name: sales_forecast_databases
+  
+  sales_models:
+    driver: local
+    name: sales_forecast_models
+  
+  sales_mlruns:
+    driver: local
+    name: sales_forecast_mlruns
+  
+  sales_reports:
+    driver: local
+    name: sales_forecast_reports
+  
+  sales_logs:
+    driver: local
+    name: sales_forecast_logs
+  
+  sales_forecasts:
+    driver: local
+    name: sales_forecast_forecasts
+  
+  sales_data:
+    driver: local
+    name: sales_forecast_data
+
+# =============================================================================
+# Networks (optional - uncomment if needed)
+# =============================================================================
+# networks:
+#   sales_network:
+#     driver: bridge
+
